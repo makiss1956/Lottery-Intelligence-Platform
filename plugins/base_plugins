@@ -1,0 +1,40 @@
+class BasePlugin(ABC):
+    """
+    Abstract Base Class για όλα τα Plugins/Αλγόριθμους.
+    Κάθε νέος αλγόριθμος πρέπει να κληρονομεί από αυτή την κλάση.
+    """
+   
+    def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
+
+    @abstractmethod
+    def predict(self, history_data: list) -> list:
+        """
+        Επιστρέφει μια λίστα με τους προτεινόμενους αριθμούς.
+        Must be implemented by each plugin.
+        """
+        pass
+
+* Πάτα Commit changes....
+Βήμα 2: Δημιουργία του πρώτου Plugin (random_plugin.py)
+Αφού ολοκληρώσεις το commit του base_plugin.py, θα δημιουργήσουμε έναν απλό αλγόριθμο (Baseline / Random) για επιβεβαίωση της λειτουργίας:
+* Μέσα στον φάκελο plugins/, πάτα Add file -> Create new file.
+* Ονόμασε το αρχείο random_plugin.py.
+* Επικόλλησε τον παρακάτω κώδικα:
+import random
+from plugins.base_plugin import BasePlugin
+
+class RandomPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__(
+            name="Random Choice Baseline",
+            description="Παράγει τυχαίους αριθμούς για χρήση ως σημείο αναφοράς (baseline)."
+        )
+
+    def predict(self, history_data: list) -> list:
+        # Παράδειγμα: Επιλογή 5 τυχαίων αριθμών από το 1 έως το 50
+        return sorted(random.sample(range(1, 51), 5))
+
+
+ 

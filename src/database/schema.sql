@@ -1,5 +1,4 @@
--- Lottery Intelligence Platform
--- Database Schema v0.1
+-- Lottery Intelligence Platform - Database Schema v0.1
 
 CREATE TABLE draws (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

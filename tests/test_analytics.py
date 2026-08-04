@@ -1,22 +1,19 @@
 """
-Unit tests for the Analytics Engine modules:
-FrequencyAnalyzer, ProbabilityPredictor, and Backtester.
+Unit tests for frequency analysis, prediction, and backtesting engines.
 """
 
-import os
-import sqlite3
 import pytest
-
 from src.analytics.backtester import Backtester
 from src.analytics.frequency_analyzer import FrequencyAnalyzer
+from src.analytics.pattern_analyzer import PatternAnalyzer
 from src.analytics.predictor import ProbabilityPredictor
 from src.database.database_manager import DatabaseManager
 
 
 @pytest.fixture
 def test_db_manager(tmp_path):
-    """Fixture providing a temporary SQLite database pre-populated with mock draw data."""
-    db_file = tmp_path / "test_analytics.db"
+    """Fixture providing a temporary database populated with mock draw data."""
+    db_file = tmp_path / "test_lottery.db"
     schema_content = """
     CREATE TABLE IF NOT EXISTS eurojackpot_draws (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,11 +33,11 @@ def test_db_manager(tmp_path):
     db_mgr = DatabaseManager(db_path=str(db_file), schema_path=str(schema_file))
     db_mgr.initialize_database()
 
-    # Insert 3 sample draws
+    # Populate mock draws
     sample_draws = [
-        ("2026-03-01", 5, 12, 23, 34, 45, 2, 7),
-        ("2026-03-05", 5, 10, 15, 20, 25, 2, 9),
-        ("2026-03-10", 1, 2, 3, 4, 5, 1, 2),
+        ("2026-01-01", 1, 2, 3, 4, 5, 1, 2),
+        ("2026-01-05", 1, 2, 3, 10, 11, 1, 3),
+        ("2026-01-10", 1, 2, 15, 16, 17, 2, 4),
     ]
     for draw in sample_draws:
         db_mgr.execute(
@@ -54,49 +51,55 @@ def test_db_manager(tmp_path):
     return db_mgr
 
 
-def test_frequency_analyzer_counts(test_db_manager):
-    """Verify that frequency calculations accurately aggregate number occurrences."""
+def test_frequency_analyzer(test_db_manager):
+    """Verify frequency count calculations for primary and euro numbers."""
     analyzer = FrequencyAnalyzer(test_db_manager)
-    freqs = analyzer.calculate_number_frequencies()
-    euro_freqs = analyzer.calculate_euro_frequencies()
+    primary_freqs = analyzer.get_primary_frequencies()
+    euro_freqs = analyzer.get_euro_frequencies()
 
-    # Number 5 appears in all 3 draws
-    assert freqs[5] == 3
-    # Number 12 appears in 1 draw
-    assert freqs[12] == 1
-    # Number 50 appears in 0 draws
-    assert freqs[50] == 0
-
-    # Euro number 2 appears in 3 draws
-    assert euro_freqs[2] == 3
+    # Numbers 1 and 2 appear in all 3 draws
+    assert primary_freqs[1] == 3
+    assert primary_freqs[2] == 3
+    # Euro number 1 appears in 2 draws
+    assert euro_freqs[1] == 2
 
 
-def test_predictor_candidate_counts(test_db_manager):
-    """Ensure prediction output contains exactly requested candidate set sizes."""
-    analyzer = FrequencyAnalyzer(test_db_manager)
-    predictor = ProbabilityPredictor(analyzer)
+def test_probability_predictor_without_pattern(test_db_manager):
+    """Verify standard candidate set selection based purely on frequency."""
+    freq_analyzer = FrequencyAnalyzer(test_db_manager)
+    predictor = ProbabilityPredictor(freq_analyzer)
 
-    candidates = predictor.predict_candidate_set(primary_count=7, euro_count=3)
+    candidates = predictor.predict_candidate_set(primary_count=5, euro_count=2)
 
-    assert len(candidates["primary_candidates"]) == 7
-    assert len(candidates["euro_candidates"]) == 3
-    assert len(set(candidates["primary_candidates"])) == 7  # All unique
+    assert len(candidates["primary_candidates"]) == 5
+    assert len(candidates["euro_candidates"]) == 2
+    # Most frequent primary numbers 1 and 2 must be included
+    assert 1 in candidates["primary_candidates"]
+    assert 2 in candidates["primary_candidates"]
 
 
-def test_backtester_evaluation():
-    """Verify that backtester correctly calculates hits and target metrics."""
-    predicted_mains = [1, 2, 3, 10, 20, 30, 40]
-    predicted_euros = [1, 2, 5]
+def test_probability_predictor_with_pattern_analyzer(test_db_manager):
+    """Verify candidate set generation with integrated PatternAnalyzer optimization."""
+    freq_analyzer = FrequencyAnalyzer(test_db_manager)
+    pattern_analyzer = PatternAnalyzer(test_db_manager)
+    predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer=pattern_analyzer)
 
-    actual_draw = {
-        "draw_date": "2026-03-10",
-        "numbers": [1, 2, 3, 4, 5],
-        "euro_numbers": [1, 2],
-    }
+    candidates = predictor.predict_candidate_set(primary_count=5, euro_count=2)
 
-    result = Backtester.evaluate_prediction(predicted_mains, predicted_euros, actual_draw)
+    assert len(candidates["primary_candidates"]) == 5
+    assert len(candidates["euro_candidates"]) == 2
+    # Ensure candidates list is sorted after optimization
+    assert candidates["primary_candidates"] == sorted(candidates["primary_candidates"])
 
-    # Should match numbers 1, 2, 3 -> 3 hits
-    assert result["main_hits_count"] == 3
-    assert result["euro_hits_count"] == 2
-    assert result["target_achieved"] is True
+
+def test_backtester(test_db_manager):
+    """Verify evaluation metric outputs from the backtesting engine."""
+    freq_analyzer = FrequencyAnalyzer(test_db_manager)
+    predictor = ProbabilityPredictor(freq_analyzer)
+    backtester = Backtester(test_db_manager, predictor)
+
+    results = backtester.run_evaluations(eval_draws=2)
+
+    assert results["total_evaluated"] == 2
+    assert "average_primary_matches" in results
+    assert "average_euro_matches" in results

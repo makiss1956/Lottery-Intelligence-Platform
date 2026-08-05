@@ -1,0 +1,27 @@
+name: Eurojackpot Automated Pipeline
+
+on:
+  schedule:
+    # Εκτέλεση κάθε Τρίτη και Παρασκευή στις 19:00 UTC (22:00 ώρα Ελλάδος)
+    - cron: '0 19 * * 2,5'
+  workflow_dispatch: # Επιτρέπει τη χειροκίνητη εκτέλεση όποτε θέλουμε
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/coordinator/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Run main pipeline
+      env:
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+        RECIPIENT_EMAILS: ${{ secrets.RECIPIENT_EMAILS }}
+      run: python main_pipeline.py

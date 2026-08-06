@@ -13,7 +13,11 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
-
+print("=" * 65)
+print("  LOTTERY INTELLIGENCE PLATFORM - STATISTICAL RESEARCH TOOL")
+print("  Disclaimer: For educational & analytical research only.")
+print("  Draws are independent random events. No prediction guarantees.")
+print("=" * 65)
 from src.analytics.backtester import Backtester
 from src.analytics.frequency_analyzer import FrequencyAnalyzer
 from src.analytics.predictor import ProbabilityPredictor

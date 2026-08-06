@@ -1,6 +1,4 @@
----
-
-## ⚠️ Legal Disclaimer & Purpose
+## Legal Disclaimer & Purpose
 
 **English:**
 This project is an open-source, educational, and research-oriented framework designed strictly for quantitative statistical analysis, historical data research, and mathematical modeling of lottery numbers (Eurojackpot / Tzoker). 

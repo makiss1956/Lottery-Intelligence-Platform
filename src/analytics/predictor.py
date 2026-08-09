@@ -60,7 +60,8 @@ class ProbabilityPredictor:
 
         # Apply structural pattern optimization if PatternAnalyzer is available
         if self.pattern_analyzer:
-            primary_candidates = self._optimize_candidates(primary_candidates)
+            extended_pool = sorted_primary[primary_count:]
+            primary_candidates = self._optimize_candidates(primary_candidates, extended_pool)
 
         logger.info(
             f"Generated {len(primary_candidates)} primary candidates and {len(euro_candidates)} euro candidates."
@@ -71,14 +72,25 @@ class ProbabilityPredictor:
             "euro_candidates": euro_candidates,
         }
 
-    def _optimize_candidates(self, candidates: List[int]) -> List[int]:
+    def _optimize_candidates(self, candidates: List[int], extended_pool: List[int] = None) -> List[int]:
         """Ensures the candidate list maintains a balanced odd/even structural ratio."""
         if not candidates:
             return candidates
 
         odd_count = sum(1 for n in candidates if n % 2 != 0)
-        # If set is completely skewed (all even or all odd), log warning
-        if odd_count == 0 or odd_count == len(candidates):
-            logger.warning("Candidate set has extreme Odd/Even imbalance.")
+        even_count = len(candidates) - odd_count
+
+        # Ανίχνευση ακραίας ανισορροπίας (όλοι μονοί ή όλοι ζυγοί)
+        if (odd_count == 0 or even_count == 0) and extended_pool:
+            logger.warning("Extreme Odd/Even imbalance detected. Attempting rebalance via extended pool swap.")
+            target_is_odd = (odd_count == 0)  # Αν έχουμε 0 μονούς, ψάχνουμε έναν μονό στο pool
+            
+            # Αναζήτηση του πρώτου αριθμού με την αντίθετη αρτιότητα από το extended pool
+            replacement_num = next((num for num in extended_pool if (num % 2 != 0) == target_is_odd), None)
+            
+            if replacement_num is not None:
+                removed_num = candidates.pop()  # Αφαίρεση του τελευταίου (χαμηλότερης συχνότητας) υποψηφίου
+                candidates.append(replacement_num)
+                logger.info(f"Rebalanced candidate set: replaced {removed_num} with {replacement_num}.")
 
         return sorted(candidates)

@@ -1,9 +1,9 @@
 name: Eurojackpot Automated Pipeline
 
 on:
-  schedule:
-    - cron: '30 19 * * 2,5' # Τρίτη και Παρασκευή στις 19:30 UTC
   workflow_dispatch:
+  schedule:
+    - cron: '0 21 * * 2,5'
 
 jobs:
   run-pipeline:
@@ -23,10 +23,10 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-       - name: Run main pipeline
-      env:
-        PYTHONPATH: .
-        EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
-        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-        EMAIL_RECIPIENTS: ${{ secrets.RECIPIENT_EMAIL }}
-      run: python cli.py run
+      - name: Run main pipeline
+        env:
+          PYTHONPATH: .
+          EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.RECIPIENT_EMAIL }}
+        run: python cli.py run

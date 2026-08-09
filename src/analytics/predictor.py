@@ -42,6 +42,19 @@ class ProbabilityPredictor:
             num for num, _ in sorted(euro_freqs.items(), key=lambda item: item[1], reverse=True)
         ]
 
+        # Safety checks for small datasets / empty database
+        if len(sorted_primary) < primary_count:
+            logger.warning(
+                f"Only {len(sorted_primary)} primary numbers available, requested {primary_count}."
+            )
+            primary_count = len(sorted_primary)
+
+        if len(sorted_euro) < euro_count:
+            logger.warning(
+                f"Only {len(sorted_euro)} euro numbers available, requested {euro_count}."
+            )
+            euro_count = len(sorted_euro)
+
         primary_candidates = sorted_primary[:primary_count]
         euro_candidates = sorted_euro[:euro_count]
 
@@ -60,6 +73,9 @@ class ProbabilityPredictor:
 
     def _optimize_candidates(self, candidates: List[int]) -> List[int]:
         """Ensures the candidate list maintains a balanced odd/even structural ratio."""
+        if not candidates:
+            return candidates
+
         odd_count = sum(1 for n in candidates if n % 2 != 0)
         # If set is completely skewed (all even or all odd), log warning
         if odd_count == 0 or odd_count == len(candidates):

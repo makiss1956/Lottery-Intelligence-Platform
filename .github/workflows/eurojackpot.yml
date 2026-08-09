@@ -23,9 +23,10 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Main Pipeline
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENTS: ${{ secrets.RECIPIENT_EMAIL }}
-        run: python cli.py run
+       - name: Run main pipeline
+      env:
+        PYTHONPATH: .
+        EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        EMAIL_RECIPIENTS: ${{ secrets.RECIPIENT_EMAIL }}
+      run: python cli.py run

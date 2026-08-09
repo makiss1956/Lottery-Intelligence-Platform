@@ -1,11 +1,16 @@
-import sys
 import os
+import sys
+from pathlib import Path
 
-# Ensure src directory is in Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Προσθήκη του project root στο sys.path για σωστή επίλυση των imports
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-from importer.eurojackpot_importer import EurojackpotImporter
-from notifications.email_notifier import EmailNotifier
+from src.importers.eurojackpot_importer import EuroJackpotImporter
+from src.notifications.email_notifier import EmailNotifier
+
+
 
 def run_pipeline():
     print("--- Starting Lottery Intelligence Pipeline ---")

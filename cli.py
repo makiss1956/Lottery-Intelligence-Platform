@@ -50,14 +50,18 @@ def cmd_predict(args):
 
 
 def cmd_fetch(args):
-    """Fetches and inserts the latest raw draw data."""
     print("\n⏳ Fetching latest Eurojackpot draws...")
     db_mgr = DatabaseManager()
     db_mgr.initialize_database()
 
     importer = EuroJackpotImporter()
     draws = importer.fetch_latest_draws()
-    print(f"✅ Operations complete. Retrieved {len(draws)} draw records.\n")
+    
+    if draws:
+        inserted = db_mgr.insert_draws(draws)
+        print(f"✅ Retrieved {len(draws)} draws, inserted {inserted} new records.\n")
+    else:
+        print("⚠️ No draws fetched or source unavailable.\n")
 
 
 def cmd_pipeline(args):

@@ -23,6 +23,7 @@ print("=" * 65)
 from src.analytics.backtester import Backtester
 from src.analytics.frequency_analyzer import FrequencyAnalyzer
 from src.analytics.predictor import ProbabilityPredictor
+from src.core.config import get_config
 from src.core.logger import get_logger
 from src.database.database_manager import DatabaseManager
 from src.importers.eurojackpot_importer import EuroJackpotImporter
@@ -73,6 +74,8 @@ def cmd_pipeline(args):
 
 
 def main():
+    config = get_config()
+
     parser = argparse.ArgumentParser(
         description="Lottery Intelligence Platform CLI - Statistical & Chaos Analysis Tools"
     )
@@ -86,10 +89,14 @@ def main():
         "predict", help="Generate the target statistical candidate set"
     )
     predict_parser.add_argument(
-        "--primary", type=int, default=7, help="Number of primary candidate numbers (default: 7)"
+        "--primary", type=int,
+        default=config.get("analytics", "default_primary_candidates", default=7),
+        help="Number of primary candidate numbers"
     )
     predict_parser.add_argument(
-        "--euro", type=int, default=3, help="Number of Euro candidate numbers (default: 3)"
+        "--euro", type=int,
+        default=config.get("analytics", "default_euro_candidates", default=3),
+        help="Number of Euro candidate numbers"
     )
 
     # Fetch command

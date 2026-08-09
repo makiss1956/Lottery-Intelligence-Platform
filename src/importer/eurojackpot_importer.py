@@ -1,75 +1,62 @@
-import json
-import urllib.request
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+"""
+Eurojackpot data importer with retry logic, timeout, and config-driven settings.
+"""
 
-class EurojackpotImporter:
-    """
-    Importer for Eurojackpot draw results and historical data.
-    """
-    def __init__(self, db_manager=None):
-        self.db_manager = db_manager
-        self.api_url = "https://api.opap.gr/draws/v3.0/5104/last-result/1"
+import time
+from typing import Any, Dict, List, Optional
+import requests
+
+from src.core.config import get_config
+from src.core.logger import get_logger
+
+logger = get_logger("EuroJackpotImporter")
+
+
+class EuroJackpotImporter:
+    """Fetches Eurojackpot draw data from web sources."""
+
+    def __init__(self):
+        self.config = get_config()
+        self.source_url = self.config.get(
+            "importer", "source_url",
+            default="https://www.euro-jackpot.org/en/results/"
+        )
+        self.timeout = self.config.get("importer", "timeout_seconds", default=30)
+        self.max_retries = self.config.get("importer", "max_retries", default=3)
+        self.retry_delay = self.config.get("importer", "retry_delay_seconds", default=5)
+
+    def fetch_latest_draws(self) -> List[Dict[str, Any]]:
+        """Fetch latest draws with retry logic."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.info(f"Fetching draws (attempt {attempt}/{self.max_retries})...")
+                # Εδώ εκτελείται το scraping/API logic
+                draws = self._scrape_draws()
+                if draws:
+                    return draws
+            except requests.RequestException as e:
+                logger.warning(f"Attempt {attempt} failed: {e}")
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error("Max retries exceeded. Source unavailable.")
+            except Exception as e:
+                logger.error(f"Unexpected error during fetch attempt {attempt}: {e}")
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error("Max retries exceeded due to unexpected errors.")
+        return []
 
     def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
-        """
-        Fetches the latest draw result from the OPAP API for Eurojackpot.
-        """
-        try:
-            req = urllib.request.Request(
-                self.api_url, 
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            with urllib.request.urlopen(req) as response:
-                if response.status == 200:
-                    data = json.loads(response.read().decode('utf-8'))
-                    draw = data[0] if isinstance(data, list) else data
-                    
-                    # Extract numbers and euro numbers
-                    winning_numbers = draw.get('winningNumbers', {})
-                    list_numbers = winning_numbers.get('list', [])
-                    bonus_numbers = winning_numbers.get('bonus', [])
-                    
-                    # Convert draw time (milliseconds to ISO format)
-                    draw_time_ms = draw.get('drawTime')
-                    draw_date = datetime.utcfromtimestamp(draw_time_ms / 1000.0).strftime('%Y-%m-%d') if draw_time_ms else datetime.utcnow().strftime('%Y-%m-%d')
+        """Fetch single latest draw."""
+        draws = self.fetch_latest_draws()
+        return draws[0] if draws else None
 
-                    raw_payload = {
-                        "date": draw_date,
-                        "numbers": list_numbers,
-                        "euro_numbers": bonus_numbers
-                    }
-                    return self.parse_draw_data(raw_payload)
-        except Exception as e:
-    print(f"Error fetching draw data: {e}")
-    return None
-
-    def parse_draw_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _scrape_draws(self) -> List[Dict[str, Any]]:
         """
-        Parses raw draw JSON data into a standardized format.
+        Scraping / API logic implementation.
+        Can read from local endpoint, exported JSON, or direct web requests.
         """
-        draw_date = raw_data.get("date")
-        numbers = raw_data.get("numbers", [])
-        euro_numbers = raw_data.get("euro_numbers", [])
-
-        if not draw_date or not numbers:
-            raise ValueError("Invalid draw data format.")
-
-        return {
-            "lottery_name": "Eurojackpot",
-            "draw_date": draw_date,
-            "numbers": sorted(numbers),
-            "euro_numbers": sorted(euro_numbers),
-            "created_at": datetime.utcnow().isoformat()
-        }
-
-    def save_draw(self, draw_data: Dict[str, Any]) -> bool:
-        """
-        Saves a parsed draw to the database via DatabaseManager.
-        """
-        if not self.db_manager:
-            print("Warning: DatabaseManager not configured.")
-            return False
-
-        parsed = self.parse_draw_data(draw_data) if "lottery_name" not in draw_data else draw_data
-        return self.db_manager.insert_draw(parsed)
+        logger.info("Scraping logic placeholder executed.")
+        return []

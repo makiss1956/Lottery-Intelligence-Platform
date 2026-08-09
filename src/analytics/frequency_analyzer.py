@@ -44,11 +44,9 @@ class FrequencyAnalyzer:
         counts: Counter[int] = Counter()
 
         for draw in draws:
-            # Main numbers are positions 1 through 5
             main_nums = draw[1:6]
             counts.update(main_nums)
 
-        # Ensure all numbers 1-50 are represented in the map
         return {num: counts.get(num, 0) for num in range(1, 51)}
 
     def calculate_euro_frequencies(self) -> Dict[int, int]:
@@ -61,11 +59,18 @@ class FrequencyAnalyzer:
         counts: Counter[int] = Counter()
 
         for draw in draws:
-            # Euro numbers are positions 6 and 7
             euro_nums = draw[6:8]
             counts.update(euro_nums)
 
         return {num: counts.get(num, 0) for num in range(1, 13)}
+
+    def get_primary_frequencies(self) -> Dict[int, int]:
+        """Alias method for compatibility with predictor engine."""
+        return self.calculate_number_frequencies()
+
+    def get_euro_frequencies(self) -> Dict[int, int]:
+        """Alias method for compatibility with predictor engine."""
+        return self.calculate_euro_frequencies()
 
     def calculate_delays(self) -> Dict[int, int]:
         """Calculates current delays (draws passed since last drawn) for numbers 1-50.
@@ -88,27 +93,46 @@ class FrequencyAnalyzer:
             if not unseen_numbers:
                 break
 
-        # Any number never drawn in history gets full dataset length delay
         for num in unseen_numbers:
             delays[num] = len(draws)
 
         return dict(sorted(delays.items()))
 
     def get_summary_report(self) -> Dict[str, Any]:
-        """Generates a complete frequency and delay summary report.
+        """Generates a complete summary report using a single DB query.
 
         Returns:
             Dict[str, Any]: Consolidated metrics summary.
         """
-        freqs = self.calculate_number_frequencies()
-        euro_freqs = self.calculate_euro_frequencies()
-        delays = self.calculate_delays()
+        draws = self.fetch_all_draws()  # Μία ανάγνωση από τη βάση
+        total_draws = len(draws)
 
-        logger.info("Generated frequency and delay summary report.")
+        main_counts: Counter[int] = Counter()
+        euro_counts: Counter[int] = Counter()
+        delays: Dict[int, int] = {}
+        unseen_numbers = set(range(1, 51))
+
+        for idx, draw in enumerate(draws):
+            main_nums = draw[1:6]
+            euro_nums = draw[6:8]
+
+            main_counts.update(main_nums)
+            euro_counts.update(euro_nums)
+
+            # Καταγραφή καθυστερήσεων
+            found_now = unseen_numbers.intersection(set(main_nums))
+            for num in found_now:
+                delays[num] = idx
+                unseen_numbers.remove(num)
+
+        for num in unseen_numbers:
+            delays[num] = total_draws
+
+        logger.info("Generated frequency and delay summary report (single fetch).")
 
         return {
-            "total_draws_analyzed": len(self.fetch_all_draws()),
-            "main_frequencies": freqs,
-            "euro_frequencies": euro_freqs,
-            "main_delays": delays,
+            "total_draws_analyzed": total_draws,
+            "main_frequencies": {num: main_counts.get(num, 0) for num in range(1, 51)},
+            "euro_frequencies": {num: euro_counts.get(num, 0) for num in range(1, 13)},
+            "main_delays": dict(sorted(delays.items())),
         }

@@ -6,7 +6,7 @@ historical frequency analysis and statistical metrics.
 """
 
 import logging
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,48 @@ class ProbabilityPredictor:
         """
         self.freq_analyzer = freq_analyzer
 
+    def rebalance_candidates(
+        self, 
+        candidates: List[int], 
+        frequencies: Dict[int, int], 
+        replacement_pool: List[int]
+    ) -> List[int]:
+        """
+        Safely rebalances a list of candidate numbers by removing the element 
+        with the lowest frequency score and introducing a replacement.
+
+        :param candidates: Current list of candidate numbers.
+        :param frequencies: Dictionary mapping numbers to their historical frequencies.
+        :param replacement_pool: Pool of eligible numbers for replacement.
+        :return: Rebalanced list of candidate numbers sorted in ascending order.
+        """
+        if not candidates:
+            return []
+
+        # 1. Ταξινόμηση υποψηφίων βάσει συχνότητας (αύξουσα σειρά: πρώτο το στοιχείο με τη μικρότερη συχνότητα)
+        sorted_by_freq = sorted(candidates, key=lambda num: frequencies.get(num, 0))
+
+        # 2. Αφαίρεση του αριθμού με τη χαμηλότερη συχνότητα
+        lowest_freq_num = sorted_by_freq.pop(0)
+        remaining_candidates = set(sorted_by_freq)
+
+        # 3. Εύρεση κατάλληλου αντικαταστάτη που δεν υπάρχει ήδη στους υποψηφίους
+        replacement = None
+        for num in replacement_pool:
+            if num not in remaining_candidates and num != lowest_freq_num:
+                replacement = num
+                break
+
+        if replacement is not None:
+            remaining_candidates.add(replacement)
+            logger.debug("Rebalanced: Removed %d (freq: %d), Added %d", 
+                         lowest_freq_num, frequencies.get(lowest_freq_num, 0), replacement)
+        else:
+            remaining_candidates.add(lowest_freq_num)  # Fallback αν δεν βρεθεί αντικαταστάτης
+
+        # 4. Επιστροφή ταξινομημένης λίστας κατά αύξουσα αριθμητική σειρά για το τελικό output
+        return sorted(list(remaining_candidates))
+
     def predict_candidate_set(
         self, 
         primary_numbers: Optional[List[int]] = None, 
@@ -35,10 +77,8 @@ class ProbabilityPredictor:
         :return: Dictionary containing statistical scores and calculated weights.
         """
         try:
-            # Διορθωμένες κλήσεις των μεθόδων του FrequencyAnalyzer
             primary_freqs = self.freq_analyzer.calculate_number_frequencies()
             euro_freqs = self.freq_analyzer.calculate_euro_frequencies()
-
         except AttributeError as e:
             logger.error("Error invoking frequency calculation methods on FrequencyAnalyzer: %s", e)
             raise AttributeError(
@@ -87,6 +127,5 @@ class ProbabilityPredictor:
             evaluation = self.predict_candidate_set(primary_numbers=primaries, euro_numbers=euros)
             results.append(evaluation)
 
-        # Ταξινόμηση βάσει του total_score (φθίνουσα σειρά)
         results.sort(key=lambda x: x.get("total_score", 0.0), reverse=True)
         return results

@@ -1,153 +1,162 @@
-
 """
-SQLite Database Manager with transaction support and connection pooling.
+Database Manager Module
+----------------------
+Handles database connections, schema execution, draw persistence, 
+batch insertions with transaction management, and query operations.
 """
 
 import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from typing import Dict, List, Any, Optional, Tuple, TypedDict
 
-from src.core.config import get_config
-from src.core.logger import get_logger
-
-logger = get_logger("DatabaseManager")
+logger = logging.getLogger(__name__)
 
 
-class DatabaseManager:
-    """Manages SQLite connections, schema initialization, and CRUD operations."""
+class BatchResult(TypedDict):
+    inserted_count: int
+    skipped_count: int
+    success: bool
 
-    def __init__(self, db_path: Optional[str] = None):
-        self.config = get_config()
-        self.db_path = db_path or self.config.database_path
-        self._ensure_dirs()
 
-    def _ensure_dirs(self) -> None:
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+class DBManager:
+    """Manages SQLite database operations with batching and transaction safety."""
 
-    @contextmanager
-    def _connection(self):
-        """Context manager for safe connection handling with transactions."""
+    def __init__(self, db_path: str = "lottery_data.db"):
+        """
+        Initialize database connection manager.
+
+        :param db_path: Path to SQLite database file.
+        """
+        self.db_path = db_path
+        self._init_db()
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Creates and returns a new database connection."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-            logger.debug("Transaction committed successfully.")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Transaction rolled back due to error: {e}")
-            raise
-        finally:
-            conn.close()
+        return conn
 
-    def initialize_database(self) -> None:
-        """Creates tables if they do not exist."""
-        schema = """
-        CREATE TABLE IF NOT EXISTS eurojackpot_draws (
+    def _init_db(self) -> None:
+        """Initializes database schema if tables do not exist."""
+        query = """
+        CREATE TABLE IF NOT EXISTS draws (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            draw_date TEXT NOT NULL UNIQUE,
-            num1 INTEGER NOT NULL,
-            num2 INTEGER NOT NULL,
-            num3 INTEGER NOT NULL,
-            num4 INTEGER NOT NULL,
-            num5 INTEGER NOT NULL,
-            euro1 INTEGER NOT NULL,
-            euro2 INTEGER NOT NULL,
+            draw_number INTEGER UNIQUE NOT NULL,
+            draw_date TEXT,
+            winning_numbers TEXT NOT NULL,
+            bonus_numbers TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX IF NOT EXISTS idx_draw_date ON eurojackpot_draws(draw_date);
         """
-        with self._connection() as conn:
-            conn.executescript(schema)
-            logger.info("Database initialized successfully.")
+        try:
+            with self.get_connection() as conn:
+                conn.execute(query)
+                conn.commit()
+            logger.info("Database schema initialized successfully.")
+        except Exception as e:
+            logger.error("Failed to initialize database schema: %s", e)
+            raise
+
+    def save_draw_if_new(self, draw: Dict[str, Any]) -> bool:
+        """
+        Saves a draw only if it does not already exist in the database.
+
+        :param draw: Dictionary containing draw data.
+        :return: True if the draw was inserted, False if it already existed.
+        """
+        return self.insert_draw(draw)
 
     def insert_draw(self, draw: Dict[str, Any]) -> bool:
-        """Insert a single draw with transaction safety."""
-        query = """
-        INSERT OR IGNORE INTO eurojackpot_draws 
-        (draw_date, num1, num2, num3, num4, num5, euro1, euro2)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
-        numbers = draw.get("numbers", [])
-        euro_numbers = draw.get("euro_numbers", [])
-        
-        if len(numbers) != 5 or len(euro_numbers) != 2:
-            logger.warning(f"Invalid draw format: {draw}")
-            return False
+        Inserts a single draw record with uniqueness validation.
 
-        try:
-            with self._connection() as conn:
-                conn.execute(query, (
-                    draw.get("draw_date"),
-                    numbers[0], numbers[1], numbers[2], numbers[3], numbers[4],
-                    euro_numbers[0], euro_numbers[1],
-                ))
-            logger.info(f"Inserted draw for {draw.get('draw_date')}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to insert draw: {e}")
-            return False
+        :param draw: Dictionary containing draw data.
+        :return: True if newly inserted, False if skipped/duplicate.
+        """
+        result = self.insert_draws([draw], batch_size=1)
+        return result["inserted_count"] > 0
 
-    def insert_draws(self, draws: List[Dict[str, Any]]) -> int:
-        """Batch insert with single transaction."""
+    def insert_draws(self, draws: List[Dict[str, Any]], batch_size: int = 100) -> BatchResult:
+        """
+        Inserts a list of draws using chunked batch transactions.
+        Commits every N records (batch_size) to ensure partial success on failure.
+
+        :param draws: List of draw dictionaries.
+        :param batch_size: Number of records per transaction commit.
+        :return: BatchResult dictionary with inserted_count, skipped_count, and success flag.
+        """
         if not draws:
-            return 0
-        
+            return {"inserted_count": 0, "skipped_count": 0, "success": True}
+
         query = """
-        INSERT OR IGNORE INTO eurojackpot_draws 
-        (draw_date, num1, num2, num3, num4, num5, euro1, euro2)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO draws (draw_number, draw_date, winning_numbers, bonus_numbers)
+        VALUES (?, ?, ?, ?);
         """
-        inserted = 0
-        
-        try:
-            with self._connection() as conn:
-                for draw in draws:
-                    numbers = draw.get("numbers", [])
-                    euro_numbers = draw.get("euro_numbers", [])
-                    if len(numbers) == 5 and len(euro_numbers) == 2:
-                        conn.execute(query, (
-                            draw.get("draw_date"),
-                            numbers[0], numbers[1], numbers[2], numbers[3], numbers[4],
-                            euro_numbers[0], euro_numbers[1],
-                        ))
-                        inserted += 1
-            logger.info(f"Batch inserted {inserted}/{len(draws)} draws.")
-            return inserted
-        except Exception as e:
-            logger.error(f"Batch insert failed: {e}")
-            return 0
 
-    def fetch_all(self, query: str, params: Tuple[Any, ...] = ()) -> List[Tuple[Any, ...]]:
-        """Execute SELECT and return all rows."""
-        try:
-            with self._connection() as conn:
-                cursor = conn.execute(query, params)
-                return cursor.fetchall()
-        except Exception as e:
-            logger.error(f"Query failed: {e}")
-            return []
+        total_inserted = 0
+        total_skipped = 0
+        has_error = False
 
-    def get_latest_draws(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Return latest draws as dictionaries."""
-        query = """
-        SELECT draw_date, num1, num2, num3, num4, num5, euro1, euro2
-        FROM eurojackpot_draws
-        ORDER BY draw_date DESC
-        LIMIT ?
+        # Διαχωρισμός των εγγραφών σε batches (chunking)
+        for i in range(0, len(draws), batch_size):
+            batch = draws[i:i + batch_size]
+            try:
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
+                    batch_inserted = 0
+                    
+                    for draw in batch:
+                        draw_number = draw.get("draw_number")
+                        draw_date = str(draw.get("draw_date", ""))
+                        
+                        # Μετατροπή λιστών σε string αν χρειάζεται
+                        primaries = draw.get("primary_numbers") or draw.get("winning_numbers") or []
+                        euros = draw.get("euro_numbers") or draw.get("bonus_numbers") or []
+                        
+                        winning_str = ",".join(map(str, primaries)) if isinstance(primaries, list) else str(primaries)
+                        bonus_str = ",".join(map(str, euros)) if isinstance(euros, list) else str(euros)
+
+                        cursor.execute(query, (draw_number, draw_date, winning_str, bonus_str))
+                        if cursor.rowcount > 0:
+                            batch_inserted += 1
+
+                    conn.commit()  # Commit ανά batch
+                    total_inserted += batch_inserted
+                    total_skipped += (len(batch) - batch_inserted)
+
+            except Exception as e:
+                logger.error("Error inserting batch starting at index %d: %s", i, e)
+                has_error = True
+                total_skipped += len(batch)
+
+        logger.info("Batch insertion finished. Inserted: %d, Skipped: %d", total_inserted, total_skipped)
+
+        return {
+            "inserted_count": total_inserted,
+            "skipped_count": total_skipped,
+            "success": not has_error
+        }
+
+    def get_all_draws(self) -> List[Dict[str, Any]]:
         """
-        rows = self.fetch_all(query, (limit,))
-        return [
-            {
-                "draw_date": row[0],
-                "numbers": list(row[1:6]),
-                "euro_numbers": list(row[6:8]),
-            }
-            for row in rows
-        ]
+        Retrieves all stored draws ordered by draw_number ascending.
 
-    def get_draw_count(self) -> int:
-        """Return total number of stored draws."""
-        rows = self.fetch_all("SELECT COUNT(*) FROM eurojackpot_draws")
-        return rows[0][0] if rows else 0
+        :return: List of draw dictionaries.
+        """
+        query = "SELECT draw_number, draw_date, winning_numbers, bonus_numbers FROM draws ORDER BY draw_number ASC;"
+        draws = []
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                rows = cursor.execute(query).fetchall()
+                for row in rows:
+                    draws.append({
+                        "draw_number": row["draw_number"],
+                        "draw_date": row["draw_date"],
+                        "primary_numbers": [int(x) for x in row["winning_numbers"].split(",") if x.isdigit()],
+                        "euro_numbers": [int(x) for x in row["bonus_numbers"].split(",") if x.isdigit()] if row["bonus_numbers"] else []
+                    })
+        except Exception as e:
+            logger.error("Failed to retrieve draws: %s", e)
+
+        return draws

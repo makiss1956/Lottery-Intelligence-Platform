@@ -4,10 +4,10 @@ on:
   # ⏰ Αυτόματο run: Τρίτη & Παρασκευή στις 22:00 EET (20:00 UTC)
   # Οι κληρώσεις Eurojackpot γίνονται ~21:00 CET. Δίνουμε 1 ώρα buffer.
   schedule:
-    - cron: "0 20 * * 2"   # Τρίτη 20:00 UTC
-    - cron: "0 20 * * 5"   # Παρασκευή 20:00 UTC
+    - cron: "0 20 * * 2"  # Τρίτη 20:00 UTC
+    - cron: "0 20 * * 5"  # Παρασκευή 20:00 UTC
 
-  # 🔘 Επιτρέπει και manual trigger από το GitHub UI
+  # ⚙️ Επιτρέπει και manual trigger από το GitHub UI
   workflow_dispatch:
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
 
     steps:
       # 1️⃣ Checkout του κώδικα
-      - name: 📥 Checkout repository
+      - name: 📁 Checkout repository
         uses: actions/checkout@v4
 
       # 2️⃣ Setup Python
@@ -71,7 +71,7 @@ jobs:
           echo "PIPELINE_STATUS=success" >> $GITHUB_ENV
         continue-on-error: true
 
-      # 7️⃣ 📋 Capture output για το email
+      # 7️⃣ 📝 Capture output για το email
       - name: 📝 Prepare Email Body
         id: email_body
         if: always()
@@ -84,7 +84,7 @@ jobs:
           ✅ Lottery Intelligence Pipeline - Επιτυχής Ολοκλήρωση
 
           📅 Ημερομηνία: $(date +'%Y-%m-%d %H:%M:%S')
-          🔢 Πρόβλεψη:
+          📊 Πρόβλεψη:
           $PREDICTION
 
           ---
@@ -107,13 +107,13 @@ jobs:
         if: always()
         uses: dawidd6/action-send-mail@v3.12.0
         with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SENDER_EMAIL }}
+          password: ${{ secrets.SENDER_PASSWORD }}
           subject: ${{ env.EMAIL_SUBJECT }}
-          to: ${{ secrets.EMAIL_PRIMARY }}
-          from: ${{ secrets.SMTP_USERNAME || secrets.EMAIL_PRIMARY }}
+          to: ${{ secrets.RECIPIENT_EMAIL }}
+          from: ${{ secrets.SENDER_EMAIL }}
           html_body: false
           body: file://email_body.txt
 
@@ -122,13 +122,13 @@ jobs:
         if: always()
         uses: dawidd6/action-send-mail@v3.12.0
         with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SENDER_EMAIL }}
+          password: ${{ secrets.SENDER_PASSWORD }}
           subject: ${{ env.EMAIL_SUBJECT }}
           to: ${{ secrets.EMAIL_SECONDARY }}
-          from: ${{ secrets.SMTP_USERNAME || secrets.EMAIL_PRIMARY }}
+          from: ${{ secrets.SENDER_EMAIL }}
           html_body: false
           body: file://email_body.txt
 

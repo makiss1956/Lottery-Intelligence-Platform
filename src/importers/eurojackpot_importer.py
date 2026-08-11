@@ -1,12 +1,10 @@
  """Eurojackpot data importer with web scraping + CSV fallback."""
-  import csv
-  import re
-  import logging
-  from datetime import datetime, timedelta
-  from pathlib import Path
-  from typing import Dict, List, Any, Optional
-  import requests
-  from bs4 import BeautifulSoup
+
+import os
+import logging
+import requests
+import pandas as pd
+from typing import List, Dict, Any, Optional
 
  from src.database.db_manager import DBManager
  from src.core.config import get_config

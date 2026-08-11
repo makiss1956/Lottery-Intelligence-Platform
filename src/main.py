@@ -1,4 +1,4 @@
- """Main Application Pipeline Entrypoint.
+"""Main Application Pipeline Entrypoint.
 
 Coordinates:
   1. Data fetching

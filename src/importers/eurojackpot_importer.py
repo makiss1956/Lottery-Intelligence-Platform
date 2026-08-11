@@ -13,12 +13,11 @@ from src.core.logger import get_logger
 
 logger = get_logger("Importer")
 
-class EuroJackpotImporter:
+class EurojackpotImporter:
     """Fetches latest Eurojackpot draw data."""
 
-     def __init__(self):
+    def __init__(self):
         self.cfg = get_config()
-        # Νέος κώδικας fail-safe:
         temp_csv_path = self.cfg.get("importer.csv_path")
         if temp_csv_path is None:
             temp_csv_path = "data/eurojackpot_raw_history.csv"

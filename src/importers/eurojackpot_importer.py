@@ -1,15 +1,16 @@
-"""Eurojackpot data importer with web scraping + CSV fallback."""
-import csv
-import re
-import logging
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-import requests
-from bs4 import BeautifulSoup
+ """Eurojackpot data importer with web scraping + CSV fallback."""
+  import csv
+  import re
+  import logging
+  from datetime import datetime, timedelta
+  from pathlib import Path
+  from typing import Dict, List, Any, Optional
+  import requests
+  from bs4 import BeautifulSoup
 
-from src.core.config import get_config
-from src.core.logger import get_logger
+ from src.database.db_manager import DBManager
+ from src.core.config import get_config
+ from src.core.logger import get_logger
 
 logger = get_logger("Importer")
 

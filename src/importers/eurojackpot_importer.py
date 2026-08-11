@@ -16,9 +16,14 @@ logger = get_logger("Importer")
 class EuroJackpotImporter:
     """Fetches latest Eurojackpot draw data."""
 
-    def __init__(self):
+     def __init__(self):
         self.cfg = get_config()
-        self.csv_path = Path(self.cfg.get("importer.csv_path", "data/eurojackpot_raw_history.csv"))
+        # Νέος κώδικας fail-safe:
+        temp_csv_path = self.cfg.get("importer.csv_path")
+        if temp_csv_path is None:
+            temp_csv_path = "data/eurojackpot_raw_history.csv"
+        self.csv_path = Path(temp_csv_path)
+       
         self.delimiter = self.cfg.get("importer.csv_delimiter", ";")
         self.fallback_to_csv = self.cfg.get("importer.fallback_to_csv", True)
 

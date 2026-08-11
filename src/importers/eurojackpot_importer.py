@@ -1,34 +1,42 @@
 """Eurojackpot data importer with web scraping + CSV fallback."""
 
 import os
+import re
+import csv
 import logging
 import requests
 import pandas as pd
+from pathlib import Path
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-
- from src.database.db_manager import DBManager
- from src.core.config import get_config
- from src.core.logger import get_logger
-"""Eurojackpot data importer with web scraping + CSV fallback."""
-
-import os
-import logging
-import requests
-import pandas as pd
-from typing import List, Dict, Any, Optional
+from bs4 import BeautifulSoup
 
 from src.database.db_manager import DBManager
+from src.core.config import get_config
+from src.core.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class EuroJackpotImporter:
     """Fetches latest Eurojackpot draw data."""
 
-    def __init__(self):
+    def __init__(self, db_manager: Optional[DBManager] = None):
+        self.db = db_manager
         self.cfg = get_config()
         temp_csv_path = self.cfg.get("importer.csv_path")
         if temp_csv_path is None:
             temp_csv_path = "data/eurojackpot_raw_history.csv"
         self.csv_path = Path(temp_csv_path)
-       
+
         self.delimiter = self.cfg.get("importer.csv_delimiter", ";")
         self.fallback_to_csv = self.cfg.get("importer.fallback_to_csv", True)
+
+    def run(self, force: bool = False) -> bool:
+        """Pipeline execution entry point."""
+        logger.info("Starting Eurojackpot importer pipeline task...")
+        draws = self.fetch_latest_draws()
+        return len(draws) > 0
 
     def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
         """Try web first, fallback to CSV. Returns latest draw dict or None."""
@@ -55,12 +63,8 @@ from src.database.db_manager import DBManager
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
 
-            # Try to find the latest result box
-            # The site structure: latest results in a container with balls
-            # This is a best-effort parser — may need adjustment if site changes
             result_box = soup.find("div", class_=re.compile("result", re.I))
             if not result_box:
-                # Alternative: look for ball elements
                 balls = soup.find_all("span", class_=re.compile("ball", re.I))
                 if len(balls) < 7:
                     return None
@@ -68,17 +72,15 @@ from src.database.db_manager import DBManager
                 if len(nums) >= 7:
                     primary = sorted(nums[:5])
                     euro = sorted(nums[5:7])
-                    # Guess date as last draw day (Fri or Tue)
                     draw_date = self._guess_last_draw_date()
                     return {
-                        "draw_number": None,  # Will be inferred
+                        "draw_number": None,
                         "draw_date": draw_date,
                         "primary_numbers": primary,
                         "euro_numbers": euro,
                         "jackpot_euros": None
                     }
 
-            # If we found a result box, parse it
             date_elem = soup.find("time") or soup.find("span", class_=re.compile("date", re.I))
             draw_date = None
             if date_elem:
@@ -121,7 +123,6 @@ from src.database.db_manager import DBManager
             if not rows:
                 return None
             last = rows[-1]
-            # CSV columns: Date;N1;N2;N3;N4;N5;E1;E2;Jackpot_Euros
             return {
                 "draw_number": None,
                 "draw_date": last.get("Date", "").strip(),
@@ -140,19 +141,16 @@ from src.database.db_manager import DBManager
     def _guess_last_draw_date(self) -> str:
         """Guess the most recent draw date (Tue or Fri)."""
         today = datetime.now()
-        # Eurojackpot draws: Tuesday (1) and Friday (4)
         weekday = today.weekday()
-        if weekday == 1:  # Tuesday
+        if weekday == 1 or weekday == 4:
             return today.strftime("%Y-%m-%d")
-        elif weekday == 4:  # Friday
-            return today.strftime("%Y-%m-%d")
-        elif weekday > 4:  # Sat/Sun -> last Friday
+        elif weekday > 4:
             days_back = weekday - 4
             return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        elif weekday > 1:  # Wed/Thu -> last Tuesday
+        elif weekday > 1:
             days_back = weekday - 1
             return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        else:  # Monday -> last Friday
+        else:
             return (today - timedelta(days=3)).strftime("%Y-%m-%d")
 
     def _parse_date(self, text: str) -> Optional[str]:

@@ -6,3 +6,4 @@ streamlit
 scikit-learn
 pytest
 pyyaml
+beautifulsoup4

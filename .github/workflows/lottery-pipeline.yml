@@ -1,145 +1,110 @@
-name: 🎰 Lottery Intelligence Pipeline
+name: Eurojackpot Lottery Pipeline
 
 on:
-  # ⏰ Αυτόματο run: Τρίτη & Παρασκευή στις 22:00 EET (20:00 UTC)
-  # Οι κληρώσεις Eurojackpot γίνονται ~21:00 CET. Δίνουμε 1 ώρα buffer.
   schedule:
-    - cron: "0 20 * * 2"  # Τρίτη 20:00 UTC
-    - cron: "0 20 * * 5"  # Παρασκευή 20:00 UTC
-
-  # ⚙️ Επιτρέπει και manual trigger από το GitHub UI
+    # Τρίτη & Παρασκευή στις 20:00 UTC = 23:00 EEST (μετά την κλήρωση)
+    - cron: '0 20 * * 2'
+    - cron: '0 20 * * 5'
   workflow_dispatch:
+    inputs:
+      force_prediction:
+        description: 'Force prediction even if no new draw'
+        required: false
+        default: 'false'
 
 jobs:
-  run-pipeline:
+  pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      # 1️⃣ Checkout του κώδικα
-      - name: 📁 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Python
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      # 3️⃣ Cache pip dependencies για ταχύτητα
-      - name: 💾 Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      # 4️⃣ Εγκατάσταση dependencies
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pyyaml  # Για το config system
+          pip install -r requirements.txt
 
-      # 5️⃣ Δημιουργία config.yaml (χωρίς credentials)
-      - name: ⚙️ Create config
+      - name: Ensure data directories exist
         run: |
-          cat > config.yaml << 'EOF'
-          lottery:
-            name: "Eurojackpot"
-            primary_range: [1, 50]
-            euro_range: [1, 12]
-          database:
-            path: "data/lottery.db"
-          analytics:
-            default_primary_candidates: 7
-            default_euro_candidates: 3
-          importer:
-            timeout_seconds: 30
-            max_retries: 3
-          paths:
-            logs: "logs"
-            data: "data"
-          EOF
+          mkdir -p data/raw data/processed logs
 
-      # 6️⃣ 🚀 Run Pipeline: Fetch + Predict
-      - name: 🚀 Run Lottery Pipeline
-        id: pipeline
+      - name: Run Lottery Pipeline
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          FORCE_PREDICTION: ${{ github.event.inputs.force_prediction }}
         run: |
-          python cli.py fetch
-          python cli.py predict --primary 7 --euro 3 > prediction_output.txt
-          echo "PIPELINE_STATUS=success" >> $GITHUB_ENV
-        continue-on-error: true
+          python -m src.main
 
-      # 7️⃣ 📝 Capture output για το email
-      - name: 📝 Prepare Email Body
-        id: email_body
-        if: always()
-        run: |
-          echo "EMAIL_SUBJECT=Eurojackpot Pipeline Report - $(date +'%Y-%m-%d')" >> $GITHUB_ENV
-
-          if [ "${{ steps.pipeline.outcome }}" == "success" ]; then
-            PREDICTION=$(cat prediction_output.txt 2>/dev/null || echo "No prediction output available.")
-            cat > email_body.txt << EOF
-          ✅ Lottery Intelligence Pipeline - Επιτυχής Ολοκλήρωση
-
-          📅 Ημερομηνία: $(date +'%Y-%m-%d %H:%M:%S')
-          📊 Πρόβλεψη:
-          $PREDICTION
-
-          ---
-          Αυτόματο μήνυμα από το Lottery Intelligence Platform.
-          EOF
-          else
-            cat > email_body.txt << EOF
-          ❌ Lottery Intelligence Pipeline - Αποτυχία
-
-          📅 Ημερομηνία: $(date +'%Y-%m-%d %H:%M:%S')
-          ⚠️ Το pipeline απέτυχε. Ελέγξτε τα logs στο GitHub Actions.
-
-          ---
-          Αυτόματο μήνυμα από το Lottery Intelligence Platform.
-          EOF
-          fi
-
-      # 8️⃣ 📧 Send Email Notification (ΠΡΩΤΟ email)
-      - name: 📧 Send Email to Primary
-        if: always()
-        uses: dawidd6/action-send-mail@v3.12.0
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SENDER_EMAIL }}
-          password: ${{ secrets.SENDER_PASSWORD }}
-          subject: ${{ env.EMAIL_SUBJECT }}
-          to: ${{ secrets.RECIPIENT_EMAIL }}
-          from: ${{ secrets.SENDER_EMAIL }}
-          html_body: false
-          body: file://email_body.txt
-
-      # 9️⃣ 📧 Send Email Notification (ΔΕΥΤΕΡΟ email)
-      - name: 📧 Send Email to Secondary
-        if: always()
-        uses: dawidd6/action-send-mail@v3.12.0
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.SENDER_EMAIL }}
-          password: ${{ secrets.SENDER_PASSWORD }}
-          subject: ${{ env.EMAIL_SUBJECT }}
-          to: ${{ secrets.EMAIL_SECONDARY }}
-          from: ${{ secrets.SENDER_EMAIL }}
-          html_body: false
-          body: file://email_body.txt
-
-      # 🔟 📤 Upload logs & DB ως artifacts (για debugging)
-      - name: 📤 Upload Artifacts
-        if: always()
+      - name: Upload logs on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: lottery-logs-${{ github.run_id }}
-          path: |
-            logs/
-            data/
-            prediction_output.txt
-          retention-days: 7
+          name: pipeline-logs
+          path: logs/
+name: Eurojackpot Lottery Pipeline
+
+on:
+  schedule:
+    # Τρίτη & Παρασκευή στις 20:00 UTC = 23:00 EEST (μετά την κλήρωση)
+    - cron: '0 20 * * 2'
+    - cron: '0 20 * * 5'
+  workflow_dispatch:
+    inputs:
+      force_prediction:
+        description: 'Force prediction even if no new draw'
+        required: false
+        default: 'false'
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure data directories exist
+        run: |
+          mkdir -p data/raw data/processed logs
+
+      - name: Run Lottery Pipeline
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          FORCE_PREDICTION: ${{ github.event.inputs.force_prediction }}
+        run: |
+          python -m src.main
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs
+          path: logs/

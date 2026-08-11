@@ -1,0 +1,59 @@
+"""One-time migration: CSV history -> SQLite database.
+
+Usage:
+    python scripts/migrate_csv_to_sqlite.py
+
+This reads data/eurojackpot_raw_history.csv (semicolon-delimited)
+and inserts all rows into data/lottery_data.db.
+"""
+import csv
+import sys
+from pathlib import Path
+
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+
+from src.database.db_manager import DBManager
+from src.core.logger import get_logger
+
+logger = get_logger("Migration")
+
+def migrate():
+    csv_path = project_root / "data" / "eurojackpot_raw_history.csv"
+    db = DBManager("data/lottery_data.db")
+
+    if not csv_path.exists():
+        logger.error("CSV not found: %s", csv_path)
+        sys.exit(1)
+
+    inserted = 0
+    skipped = 0
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter=";")
+        for row in reader:
+            try:
+                draw = {
+                    "draw_number": None,
+                    "draw_date": row.get("Date", "").strip(),
+                    "primary_numbers": sorted([
+                        int(row.get(f"N{i}", 0)) for i in range(1, 6)
+                    ]),
+                    "euro_numbers": sorted([
+                        int(row.get(f"E{i}", 0)) for i in range(1, 3)
+                    ]),
+                    "jackpot_euros": float(row.get("Jackpot_Euros", 0) or 0)
+                }
+                if db.insert_draw(draw):
+                    inserted += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                logger.warning("Row error: %s — %s", e, row)
+                skipped += 1
+
+    logger.info("Migration complete. Inserted: %s, Skipped: %s, Total in DB: %s", 
+                inserted, skipped, db.get_draw_count())
+    print(f"Done! Inserted: {inserted}, Skipped: {skipped}, Total DB rows: {db.get_draw_count()}")
+
+if __name__ == "__main__":
+    migrate()

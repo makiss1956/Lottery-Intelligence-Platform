@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class DBManager:
     def __init__(self, db_path: Optional[str] = "data/lottery_data.db"):
         if db_path is None:
-        db_path = "data/lottery_data.db"
+            db_path = "data/lottery_data.db"
         self.db_path = db_path
         # Ensure directory exists
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)

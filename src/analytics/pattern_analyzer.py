@@ -1,82 +1,47 @@
-"""
-Pattern Analytics Module for Lottery Intelligence Platform.
-
-Analyzes structural characteristics of draw history including Odd/Even ratios,
-High/Low distributions, and Sum range patterns to refine probability models.
-"""
-
-from typing import Any, Dict, List, Tuple
+"""Structural pattern analysis (odd/even, sum ranges, etc)."""
+from typing import List, Dict, Any
 from src.core.logger import get_logger
 
 logger = get_logger("PatternAnalyzer")
 
-
 class PatternAnalyzer:
-    """Extracts structural patterns from historical draw data."""
+    """Analyzes structural properties of number sets."""
 
-    def __init__(self, db_manager: Any):
-        """Initializes analyzer with database connection manager."""
-        self.db_manager = db_manager
+    @staticmethod
+    def odd_even_balance(numbers: List[int]) -> Dict[str, int]:
+        odd = sum(1 for n in numbers if n % 2 != 0)
+        even = len(numbers) - odd
+        return {"odd": odd, "even": even, "ratio": f"{odd}:{even}"}
 
-    def fetch_all_draws(self) -> List[Tuple]:
-        """Fetches historical draws ordered by date descending."""
-        query = """
-            SELECT draw_date, num1, num2, num3, num4, num5, euro1, euro2
-            FROM eurojackpot_draws
-            ORDER BY draw_date DESC
-        """
-        return self.db_manager.fetch_all(query)
+    @staticmethod
+    def sum_range(numbers: List[int]) -> int:
+        return sum(numbers)
 
-    def analyze_odd_even_distribution(self) -> Dict[str, int]:
-        """Calculates occurrences of Odd/Even ratios across primary numbers.
+    @staticmethod
+    def consecutive_count(numbers: List[int]) -> int:
+        s = sorted(numbers)
+        cons = 0
+        for i in range(len(s) - 1):
+            if s[i+1] - s[i] == 1:
+                cons += 1
+        return cons
 
-        Returns:
-            Dict[str, int]: Distribution map, e.g., {"3_odd_2_even": 42}
-        """
-        draws = self.fetch_all_draws()
-        distribution: Dict[str, int] = {}
+    @staticmethod
+    def decade_distribution(numbers: List[int]) -> Dict[str, int]:
+        dist = {"1-10": 0, "11-20": 0, "21-30": 0, "31-40": 0, "41-50": 0}
+        for n in numbers:
+            if 1 <= n <= 10: dist["1-10"] += 1
+            elif 11 <= n <= 20: dist["11-20"] += 1
+            elif 21 <= n <= 30: dist["21-30"] += 1
+            elif 31 <= n <= 40: dist["31-40"] += 1
+            elif 41 <= n <= 50: dist["41-50"] += 1
+        return dist
 
-        for draw in draws:
-            mains = list(draw[1:6])
-            odd_count = sum(1 for n in mains if n % 2 != 0)
-            even_count = 5 - odd_count
-            key = f"{odd_count}_odd_{even_count}_even"
-            distribution[key] = distribution.get(key, 0) + 1
-
-        logger.info(f"Odd/Even distribution calculated over {len(draws)} draws.")
-        return distribution
-
-    def analyze_high_low_distribution(self, cutoff: int = 25) -> Dict[str, int]:
-        """Calculates occurrences of High/Low split (Low <= cutoff, High > cutoff).
-
-        Returns:
-            Dict[str, int]: Distribution map, e.g., {"3_low_2_high": 38}
-        """
-        draws = self.fetch_all_draws()
-        distribution: Dict[str, int] = {}
-
-        for draw in draws:
-            mains = list(draw[1:6])
-            low_count = sum(1 for n in mains if n <= cutoff)
-            high_count = 5 - low_count
-            key = f"{low_count}_low_{high_count}_high"
-            distribution[key] = distribution.get(key, 0) + 1
-
-        logger.info(f"High/Low distribution calculated over {len(draws)} draws.")
-        return distribution
-
-    def analyze_sum_ranges(self) -> Dict[str, Any]:
-        """Calculates min, max, average, and median sum of primary numbers."""
-        draws = self.fetch_all_draws()
-        if not draws:
-            return {"min_sum": 0, "max_sum": 0, "avg_sum": 0.0}
-
-        sums = [sum(draw[1:6]) for draw in draws]
-        avg_sum = sum(sums) / len(sums)
-
+    def analyze_draw(self, draw: Dict[str, Any]) -> Dict[str, Any]:
+        primary = draw.get("primary_numbers", [])
         return {
-            "min_sum": min(sums),
-            "max_sum": max(sums),
-            "avg_sum": round(avg_sum, 2),
-            "total_analyzed": len(sums),
+            "odd_even": self.odd_even_balance(primary),
+            "sum": self.sum_range(primary),
+            "consecutive": self.consecutive_count(primary),
+            "decades": self.decade_distribution(primary)
         }

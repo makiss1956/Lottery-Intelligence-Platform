@@ -9,10 +9,15 @@ from typing import List, Dict, Any, Optional
  from src.database.db_manager import DBManager
  from src.core.config import get_config
  from src.core.logger import get_logger
+"""Eurojackpot data importer with web scraping + CSV fallback."""
 
-logger = get_logger("Importer")
+import os
+import logging
+import requests
+import pandas as pd
+from typing import List, Dict, Any, Optional
 
-class EurojackpotImporter:
+from src.database.db_manager import DBManager
     """Fetches latest Eurojackpot draw data."""
 
     def __init__(self):

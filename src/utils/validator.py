@@ -39,3 +39,6 @@ class DrawValidator:
             return False
 
         return True
+
+def validate_draw(draw_data):
+    return DrawValidator.validate_eurojackpot_draw(draw_data)

@@ -1,5 +1,5 @@
 """Frequency, delay and hot/cold analytics."""
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from src.core.cache import get_cache
 from src.core.logger import get_logger
 

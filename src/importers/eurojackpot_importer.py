@@ -1,4 +1,4 @@
- """Eurojackpot data importer with web scraping + CSV fallback."""
+"""Eurojackpot data importer with web scraping + CSV fallback."""
 
 import os
 import logging

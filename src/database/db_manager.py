@@ -98,12 +98,12 @@ class DBManager:
             ).fetchone()
             return row is not None
 
-    def get_latest_draw(self):
+        def get_latest_draw(self):
         with self.get_connection() as conn:
             row = conn.execute(
                 "SELECT * FROM eurojackpot_draws ORDER BY draw_date DESC LIMIT 1"
             ).fetchone()
-            return dict(row) if row else None
+            return self._row_to_draw(row) if row else None
 
         def get_all_draws(self):
         with self.get_connection() as conn:

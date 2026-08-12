@@ -10,10 +10,9 @@ import logging
 
 logger = logging.getLogger("lottery_pipeline")
 
-class DatabaseManager:
+class DBManager:
     def __init__(self, db_path="data/lottery.db"):
         self.db_path = db_path
-        # Βεβαιωνόμαστε ότι υπάρχει ο φάκελος data/
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
@@ -33,7 +32,6 @@ class DatabaseManager:
                 with open(schema_path, "r", encoding="utf-8") as f:
                     cursor.executescript(f.read())
             else:
-                # Fallback schema αν λείπει το schema.sql
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS draws (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,3 +76,5 @@ class DatabaseManager:
             cursor.execute(query, params)
             return cursor.fetchone()
 
+# Alias για συμβατότητα σε περίπτωση που καλείται και ως DatabaseManager
+DatabaseManager = DBManager

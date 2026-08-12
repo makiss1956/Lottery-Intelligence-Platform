@@ -112,10 +112,16 @@ class DBManager:
             ).fetchall()
             return [self._row_to_draw(r) for r in rows]
 
-    def get_draw_count(self) -> int:
-        with self.get_connection() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM eurojackpot_draws").fetchone()
-            return row[0] if row else 0
+        def _row_to_draw(self, row):
+        """Convert DB row to standard draw dict with primary_numbers/euro_numbers lists."""
+        return {
+            "draw_number": row["draw_number"],
+            "draw_date": row["draw_date"],
+            "primary_numbers": [row["n1"], row["n2"], row["n3"], row["n4"], row["n5"]],
+            "euro_numbers": [row["e1"], row["e2"]],
+            "jackpot_euros": row["jackpot_euros"],
+            "created_at": row["created_at"]
+        }
 
     # ---------- Prediction Operations ----------
 

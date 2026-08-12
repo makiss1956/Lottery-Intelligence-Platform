@@ -1,13 +1,13 @@
 """Main Application Pipeline Entrypoint.
 
 Coordinates:
-  1. Data fetching
-  2. Persistence check
-  3. Evaluation of previous prediction (if unevaluated)
-  4. Statistical analysis on updated dataset
-  5. New prediction generation
-  6. Save prediction to history
-  7. Email notification dispatch
+ 1. Data fetching
+ 2. Persistence check
+ 3. Evaluation of previous prediction (if unevaluated)
+ 4. Statistical analysis on updated dataset
+ 5. New prediction generation
+ 6. Save prediction to history
+ 7. Email notification dispatch
 """
 import logging
 import sys
@@ -18,7 +18,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("lottery_pipeline")
-
 
 def run_pipeline(force: bool = False) -> None:
     logger.info("=== Lottery Analysis Pipeline Starting ===")
@@ -38,7 +37,7 @@ def run_pipeline(force: bool = False) -> None:
         sys.exit(1)
 
     cfg = get_config()
-    db_path = cfg.get("database.db_path", "data/lottery_data.db")
+    db_path = cfg.get("database", "path", default="data/lottery_data.db")
 
     db = DBManager(db_path)
     importer = EuroJackpotImporter()
@@ -63,7 +62,7 @@ def run_pipeline(force: bool = False) -> None:
         sys.exit(1)
 
     draw_date = latest.get("draw_date", "")
-    logger.info("Fetched draw for %s: primary=%s euro=%s", 
+    logger.info("Fetched draw for %s: primary=%s euro=%s",
                 draw_date, latest["primary_numbers"], latest["euro_numbers"])
 
     # 3. Check if already in DB
@@ -85,7 +84,7 @@ def run_pipeline(force: bool = False) -> None:
     try:
         prev_pred = db.get_unevaluated_prediction()
         if prev_pred:
-            logger.info("Evaluating previous prediction id=%s for date %s", 
+            logger.info("Evaluating previous prediction id=%s for date %s",
                         prev_pred["id"], prev_pred["prediction_for_date"])
             db.evaluate_prediction(prev_pred["id"], latest)
             # Reload evaluated record
@@ -110,8 +109,8 @@ def run_pipeline(force: bool = False) -> None:
     # 7. Generate NEW prediction for NEXT draw
     try:
         pred_result = predictor.predict_candidate_set(
-            primary_count=cfg.get("prediction.primary_count", 7),
-            euro_count=cfg.get("prediction.euro_count", 3)
+            primary_count=cfg.get("analytics", "default_primary_candidates", default=7),
+            euro_count=cfg.get("analytics", "default_euro_candidates", default=3)
         )
     except Exception as e:
         logger.error("Prediction generation failed: %s", e)
@@ -121,9 +120,9 @@ def run_pipeline(force: bool = False) -> None:
     from datetime import datetime, timedelta
     today = datetime.strptime(draw_date, "%Y-%m-%d")
     weekday = today.weekday()
-    if weekday == 1:      # Tuesday -> Friday
+    if weekday == 1:  # Tuesday -> Friday
         next_date = today + timedelta(days=3)
-    elif weekday == 4:    # Friday -> Tuesday
+    elif weekday == 4:  # Friday -> Tuesday
         next_date = today + timedelta(days=4)
     else:
         # Fallback: just add 3 days
@@ -145,8 +144,9 @@ def run_pipeline(force: bool = False) -> None:
     # 10. Fetch history for email
     history = db.get_prediction_history(limit=20)
 
-    # 11. Send email
+    # 11. Send email with report
     try:
+        pred_result["next_draw_date"] = next_draw_date
         email.send_prediction_report(
             draw_data=latest,
             prediction_data=pred_result,
@@ -158,13 +158,12 @@ def run_pipeline(force: bool = False) -> None:
         logger.error("Email failed: %s", e)
 
     print("Pipeline completed successfully.")
-    print(f"  New draw: {draw_date}")
+    print(f" New draw: {draw_date}")
     if evaluation:
-        print(f"  Previous prediction scored: {evaluation.get('score_percentage','N/A')}%")
-    print(f"  New prediction saved for: {next_draw_date}")
-    print(f"  Primary candidates: {pred_result['primary_candidates']}")
-    print(f"  Euro candidates: {pred_result['euro_candidates']}")
-
+        print(f" Previous prediction scored: {evaluation.get('score_percentage','N/A')}%")
+    print(f" New prediction saved for: {next_draw_date}")
+    print(f" Primary candidates: {pred_result['primary_candidates']}")
+    print(f" Euro candidates: {pred_result['euro_candidates']}")
 
 if __name__ == "__main__":
     import argparse

@@ -105,12 +105,12 @@ class DBManager:
             ).fetchone()
             return dict(row) if row else None
 
-    def get_all_draws(self):
+        def get_all_draws(self):
         with self.get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM eurojackpot_draws ORDER BY draw_date ASC"
             ).fetchall()
-            return [dict(r) for r in rows]
+            return [self._row_to_draw(r) for r in rows]
 
     def get_draw_count(self) -> int:
         with self.get_connection() as conn:

@@ -12,9 +12,9 @@ class DrawValidator:
         Validates a EuroJackpot draw dictionary.
         - Must contain 5 main numbers between 1 and 50.
         - Must contain 2 euro numbers between 1 and 12.
-        - Draw date must be a valid ISO format date string.
+        - Draw date must be a valid YYYY-MM-DD format date string.
         """
-        numbers = draw_data.get("numbers", [])
+        numbers = draw_data.get("primary_numbers", [])
         euro_numbers = draw_data.get("euro_numbers", [])
         draw_date = draw_data.get("draw_date")
 
@@ -22,7 +22,7 @@ class DrawValidator:
             return False
 
         try:
-            datetime.fromisoformat(draw_date)
+            datetime.strptime(draw_date, "%Y-%m-%d")
         except ValueError:
             return False
 

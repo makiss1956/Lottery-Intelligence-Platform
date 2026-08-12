@@ -8,7 +8,7 @@ lottery:
   draw_days: ["Tuesday", "Friday"]
 
 database:
-  path: "data/lottery.db"
+  path: "data/lottery_data.db"
   backup_dir: "data/backups"
 
 analytics:

@@ -7,7 +7,6 @@ Coordinates:
  4. Statistical analysis on updated dataset
  5. New prediction generation
  6. Save prediction to history
- 7. Email notification dispatch
 """
 import logging
 import sys
@@ -27,9 +26,7 @@ def run_pipeline(force: bool = False) -> None:
         from src.importers.eurojackpot_importer import EuroJackpotImporter
         from src.database.db_manager import DBManager
         from src.analytics.frequency_analyzer import FrequencyAnalyzer
-        from src.analytics.pattern_analyzer import PatternAnalyzer
         from src.analytics.predictor import ProbabilityPredictor
-        from src.notifications.email_sender import EmailSender
         from src.core.config import get_config
         from src.utils.validator import validate_draw
     except ImportError as e:
@@ -42,9 +39,7 @@ def run_pipeline(force: bool = False) -> None:
     db = DBManager(db_path)
     importer = EuroJackpotImporter()
     analyzer = FrequencyAnalyzer(db)
-    pattern = PatternAnalyzer()
-    predictor = ProbabilityPredictor(analyzer, pattern)
-    email = EmailSender()
+    predictor = ProbabilityPredictor(analyzer)
 
     # 2. Fetch latest draw
     try:
@@ -92,7 +87,7 @@ def run_pipeline(force: bool = False) -> None:
                 row = conn.execute("SELECT * FROM predictions WHERE id = ?", (prev_pred["id"],)).fetchone()
                 if row:
                     evaluation = dict(row)
-                    # Parse lists for email
+                    # Parse lists for display
                     if evaluation.get("matched_main"):
                         evaluation["matched_main"] = [int(x) for x in evaluation["matched_main"].split(",") if x.strip()]
                     if evaluation.get("matched_euro"):
@@ -103,7 +98,7 @@ def run_pipeline(force: bool = False) -> None:
         logger.error("Evaluation error: %s", e)
 
     # 6. Refresh analyzer cache and generate stats
-    db.cache = None  # type: ignore
+    analyzer.cache.clear()
     stats = analyzer.get_stats_summary()
 
     # 7. Generate NEW prediction for NEXT draw
@@ -141,29 +136,21 @@ def run_pipeline(force: bool = False) -> None:
     except Exception as e:
         logger.error("Failed to save prediction: %s", e)
 
-    # 10. Fetch history for email
-    history = db.get_prediction_history(limit=20)
-
-    # 11. Send email with report
-    try:
-        pred_result["next_draw_date"] = next_draw_date
-        email.send_prediction_report(
-            draw_data=latest,
-            prediction_data=pred_result,
-            evaluation=evaluation,
-            stats=stats,
-            history=history
-        )
-    except Exception as e:
-        logger.error("Email failed: %s", e)
-
-    print("Pipeline completed successfully.")
+    # 10. Print report
+    print("=" * 60)
+    print("🚀 PIPELINE COMPLETED SUCCESSFULLY")
+    print("=" * 60)
     print(f" New draw: {draw_date}")
+    print(f" Numbers: {latest['primary_numbers']} + {latest['euro_numbers']}")
     if evaluation:
         print(f" Previous prediction scored: {evaluation.get('score_percentage','N/A')}%")
+        print(f" Matched main: {evaluation.get('matched_main', [])}")
+        print(f" Matched euro: {evaluation.get('matched_euro', [])}")
     print(f" New prediction saved for: {next_draw_date}")
     print(f" Primary candidates: {pred_result['primary_candidates']}")
     print(f" Euro candidates: {pred_result['euro_candidates']}")
+    print(f" Total draws in DB: {db.get_draw_count()}")
+    print("=" * 60)
 
 if __name__ == "__main__":
     import argparse

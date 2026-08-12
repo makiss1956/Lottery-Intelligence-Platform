@@ -42,8 +42,8 @@ def cmd_fetch(args):
     draw = importer.fetch_latest_draw()
     if draw:
         print(f"✅ Draw found: {draw['draw_date']}")
-        print(f"   Primary: {draw['primary_numbers']}")
-        print(f"   Euro: {draw['euro_numbers']}")
+        print(f" Primary: {draw['primary_numbers']}")
+        print(f" Euro: {draw['euro_numbers']}")
     else:
         print("❌ No draw data retrieved.")
 
@@ -67,6 +67,27 @@ def cmd_history(args):
         print(f"{r.get('prediction_for_date',''):<12} {pm:<30} {pe:<20} {str(mh):<6} {str(eh):<6} {str(sc)+'%' if sc else '—':<8}")
     print("-" * 80)
 
+def cmd_report(args):
+    db = DBManager()
+    rows = db.get_evaluated_predictions(limit=args.limit)
+    if not rows:
+        print("\nΔεν υπάρχουν αξιολογημένες προβλέψεις ακόμα.")
+        print("Τρέξε πρώτα το pipeline τουλάχιστον 2 φορές (μία για πρόβλεψη, μία για αξιολόγηση).")
+        return
+
+    print("\n📊 ΑΝΑΦΟΡΑ ΠΡΟΒΛΕΨΗΣ vs ΠΡΑΓΜΑΤΙΚΟΤΗΤΑ")
+    print("=" * 100)
+    print(f"{'Ημ/νία':<12} {'Προβλ. Κύριοι':<25} {'Πραγμ. Κύριοι':<25} {'Κύριοι Hits':<12} {'Euro Hits':<10} {'Score':<8}")
+    print("-" * 100)
+    for r in rows:
+        pred_main = r.get("predicted_primary", "—")
+        actual_main = r.get("actual_primary", "—")
+        mh = r.get("main_hits", "—")
+        eh = r.get("euro_hits", "—")
+        sc = r.get("score_percentage")
+        print(f"{r.get('prediction_for_date',''):<12} {pred_main:<25} {actual_main:<25} {str(mh):<12} {str(eh):<10} {str(sc)+'%' if sc else '—':<8}")
+    print("=" * 100)
+
 def main():
     parser = argparse.ArgumentParser(description="Lottery Intelligence Platform CLI")
     sub = parser.add_subparsers(dest="command", help="Commands")
@@ -85,6 +106,9 @@ def main():
     h = sub.add_parser("history", help="Show prediction history")
     h.add_argument("--limit", type=int, default=20)
 
+    r = sub.add_parser("report", help="Αναφορά πρόβλεψης vs πραγματικότητα")
+    r.add_argument("--limit", type=int, default=50)
+
     args = parser.parse_args()
 
     if args.command == "run" or args.command == "pipeline":
@@ -95,6 +119,8 @@ def main():
         cmd_fetch(args)
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "report":
+        cmd_report(args)
     else:
         # Default: run pipeline
         run_pipeline()

@@ -41,9 +41,9 @@ class DBManager:
     def insert_draw(self, draw: Dict[str, Any]) -> bool:
         """Insert a draw. Returns True if inserted, False if duplicate."""
         query = """
-            INSERT OR IGNORE INTO eurojackpot_draws 
-            (draw_number, draw_date, n1, n2, n3, n4, n5, e1, e2, jackpot_euros)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO eurojackpot_draws
+        (draw_number, draw_date, n1, n2, n3, n4, n5, e1, e2, jackpot_euros)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             with self.get_connection() as conn:
@@ -110,9 +110,9 @@ class DBManager:
     def save_prediction(self, prediction: Dict[str, Any]) -> int:
         """Save a prediction. Returns the prediction id."""
         query = """
-            INSERT INTO predictions 
-            (prediction_for_date, predicted_primary, predicted_euro, method)
-            VALUES (?, ?, ?, ?)
+        INSERT INTO predictions
+        (prediction_for_date, predicted_primary, predicted_euro, method)
+        VALUES (?, ?, ?, ?)
         """
         with self.get_connection() as conn:
             cur = conn.execute(query, (
@@ -130,9 +130,9 @@ class DBManager:
         """Get the most recent prediction that has not been evaluated yet."""
         with self.get_connection() as conn:
             row = conn.execute(
-                """SELECT * FROM predictions 
-                   WHERE evaluated_at IS NULL 
-                   ORDER BY created_at DESC LIMIT 1"""
+                """SELECT * FROM predictions
+                WHERE evaluated_at IS NULL
+                ORDER BY created_at DESC LIMIT 1"""
             ).fetchone()
             if not row:
                 return None
@@ -140,8 +140,7 @@ class DBManager:
 
     def evaluate_prediction(self, pred_id: int, actual_draw: Dict[str, Any]) -> None:
         """Evaluate a prediction against an actual draw."""
-        pred_row = conn = self.get_connection()
-        with conn:
+        with self.get_connection() as conn:
             pred = conn.execute(
                 "SELECT * FROM predictions WHERE id = ?", (pred_id,)
             ).fetchone()
@@ -164,15 +163,15 @@ class DBManager:
 
             conn.execute("""
                 UPDATE predictions SET
-                    actual_draw_number = ?,
-                    actual_primary = ?,
-                    actual_euro = ?,
-                    main_hits = ?,
-                    euro_hits = ?,
-                    matched_main = ?,
-                    matched_euro = ?,
-                    score_percentage = ?,
-                    evaluated_at = datetime('now')
+                actual_draw_number = ?,
+                actual_primary = ?,
+                actual_euro = ?,
+                main_hits = ?,
+                euro_hits = ?,
+                matched_main = ?,
+                matched_euro = ?,
+                score_percentage = ?,
+                evaluated_at = datetime('now')
                 WHERE id = ?
             """, (
                 actual_draw["draw_number"],
@@ -193,7 +192,17 @@ class DBManager:
     def get_prediction_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute(
-                """SELECT * FROM predictions 
-                   ORDER BY created_at DESC LIMIT ?""", (limit,)
+                """SELECT * FROM predictions
+                ORDER BY created_at DESC LIMIT ?""", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_evaluated_predictions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get predictions that have been evaluated against actual draws."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM predictions
+                WHERE evaluated_at IS NOT NULL
+                ORDER BY prediction_for_date DESC LIMIT ?""", (limit,)
             ).fetchall()
             return [dict(r) for r in rows]

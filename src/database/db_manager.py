@@ -98,22 +98,21 @@ class DBManager:
             ).fetchone()
             return row is not None
 
-        def get_latest_draw(self):
-                with self.get_connection() as conn:
-                    row = conn.execute(
-                        "SELECT * FROM eurojackpot_draws ORDER BY draw_date DESC LIMIT 1"
-                    ).fetchone()
-                    return self._row_to_draw(row) if row else None
+    def get_latest_draw(self):
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM eurojackpot_draws ORDER BY draw_date DESC LIMIT 1"
+            ).fetchone()
+            return self._row_to_draw(row) if row else None
 
     def get_all_draws(self):
-            with self.get_connection() as conn:
+        with self.get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM eurojackpot_draws ORDER BY draw_date ASC"
             ).fetchall()
             return [self._row_to_draw(r) for r in rows]
 
-
-        def _row_to_draw(self, row):
+    def _row_to_draw(self, row):
         """Convert DB row to standard draw dict with primary_numbers/euro_numbers lists."""
         return {
             "draw_number": row["draw_number"],

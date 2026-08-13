@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 CSV_PATH = Path("data/eurojackpot_raw_history.csv")
-BASE_URL = "https://www.euro-jackpot.org/en/results/{year}"
+BASE_URL = "https://www.euro-jackpot.org/en/results-archive-{year}"
 
 
 def read_existing_dates() -> set:

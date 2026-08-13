@@ -8,31 +8,20 @@ import requests
 from bs4 import BeautifulSoup
 
 CSV_PATH = Path("data/eurojackpot_raw_history.csv")
-SOURCE_URL = "https://www.beatlottery.co.uk/eurojackpot/draw-history"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
 def parse_balls(cell_text):
     text = cell_text.strip().upper().replace("-", "")
-    parts = re.split(r"EURO\s*NUMBERS", text, flags=re.IGNORECASE)
-    if len(parts) != 2:
-        digits = re.findall(r"\d{1,2}", text)
-        if len(digits) >= 7:
-            return digits[:5], digits[5:7]
-        raise ValueError(f"Cannot parse balls from: '{cell_text}'")
-
-    main = re.findall(r"\d{1,2}", parts[0])
-    euro = re.findall(r"\d{1,2}", parts[1])
-
-    if len(main) < 5 or len(euro) < 2:
-        raise ValueError(f"Incomplete ball data: '{cell_text}'")
-
-    return main[:5], euro[:2]
+    digits = re.findall(r"\d{1,2}", text)
+    if len(digits) >= 7:
+        return digits[:5], digits[5:7]
+    raise ValueError(f"Cannot parse balls from: '{cell_text}'")
 
 def parse_date(date_str):
     date_str = date_str.strip()
-    for fmt in ("%d %b %Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d %b %Y"):
         try:
             return datetime.strptime(date_str, fmt).date()
         except ValueError:
@@ -45,89 +34,113 @@ def load_existing():
 
     rows = []
     seen_dates = set()
-    # Διαβάζουμε με delimiter ';' επειδή το αρχείο είναι semicolon-separated
     with CSV_PATH.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f, delimiter=";")
+        # Ανάγνωση της πρώτης γραμμής για εντοπισμό διαχωριστικού
+        first_line = f.readline()
+        delimiter = ";" if ";" in first_line else ","
+        f.seek(0)
+       
+        reader = csv.reader(f, delimiter=delimiter)
+        header = next(reader, None)
+       
         for row in reader:
-            rows.append(row)
-            if row.get("Date"):
-                seen_dates.add(row["Date"].strip())
+            if not row or len(row) < 8:
+                continue
+            d_str = row[0].strip()
+            if d_str:
+                seen_dates.add(d_str)
+                # Διατηρούμε τη δομή 9 στηλών
+                jackpot = row[8].strip() if len(row) > 8 else "0.00"
+                rows.append({
+                    "Date": d_str,
+                    "N1": row[1].strip(),
+                    "N2": row[2].strip(),
+                    "N3": row[3].strip(),
+                    "N4": row[4].strip(),
+                    "N5": row[5].strip(),
+                    "E1": row[6].strip(),
+                    "E2": row[7].strip(),
+                    "Jackpot_Euros": jackpot
+                })
     return rows, seen_dates
 
-def fetch_draws():
-    print(f"Fetching {SOURCE_URL} ...")
-    resp = requests.get(SOURCE_URL, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
+def fetch_year(year):
+    url = f"https://www.beatlottery.co.uk/eurojackpot/draw-history/{year}"
+    print(f"Fetching {url} ...")
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code != 200:
+            return []
+       
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table")
+        if not table:
+            return []
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    table = soup.find("table")
-    if not table:
-        raise RuntimeError("No table found on page")
+        rows = table.find_all("tr")
+        draws = []
 
-    rows = table.find_all("tr")
-    draws = []
-    skipped = 0
+        for tr in rows[1:]:
+            tds = tr.find_all(["td", "th"])
+            if len(tds) < 3:
+                continue
 
-    for tr in rows[1:]:
-        tds = tr.find_all(["td", "th"])
-        if len(tds) < 3:
-            continue
-
-        try:
-            texts = [td.get_text(strip=True) for td in tds]
-            date_str = texts[0]
-
-            if texts[1] in ["Tue", "Fri", "Tue,", "Fri,"]:
-                balls_cell = " ".join(texts[2:])
-            else:
+            try:
+                texts = [td.get_text(strip=True) for td in tds]
+                date_str = texts[0]
                 balls_cell = " ".join(texts[1:])
 
-            draw_date = parse_date(date_str)
-            main_nums, euro_nums = parse_balls(balls_cell)
+                draw_date = parse_date(date_str)
+                main_nums, euro_nums = parse_balls(balls_cell)
 
-            draws.append({
-                "Date": draw_date.isoformat(),
-                "N1": main_nums[0],
-                "N2": main_nums[1],
-                "N3": main_nums[2],
-                "N4": main_nums[3],
-                "N5": main_nums[4],
-                "E1": euro_nums[0],
-                "E2": euro_nums[1],
-                "Jackpot_Euros": "0.00"
-            })
-        except Exception as e:
-            skipped += 1
-            if skipped <= 3:
-                print(f"Skipping row: {e}")
-            continue
+                draws.append({
+                    "Date": draw_date.isoformat(),
+                    "N1": main_nums[0],
+                    "N2": main_nums[1],
+                    "N3": main_nums[2],
+                    "N4": main_nums[3],
+                    "N5": main_nums[4],
+                    "E1": euro_nums[0],
+                    "E2": euro_nums[1],
+                    "Jackpot_Euros": "0.00"
+                })
+            except Exception:
+                continue
 
-    return draws
+        return draws
+    except Exception as e:
+        print(f"Error fetching year {year}: {e}")
+        return []
 
 def main():
     print("=" * 60)
-    print("EUROJACKPOT HISTORICAL DATA UPDATER")
+    print("EUROJACKPOT COMPLETE HISTORICAL DATA UPDATER (2012-2026)")
     print("=" * 60)
 
     existing_rows, seen_dates = load_existing()
-    print(f"Existing draws in CSV: {len(existing_rows)}")
+    print(f"Existing draws recovered in CSV: {len(existing_rows)}")
 
-    fetched = fetch_draws()
-    new_draws = [d for d in fetched if d["Date"] not in seen_dates]
+    all_fetched = []
+    # Σαρώνουμε όλα τα έτη από το 2012 έως το 2026
+    for year in range(2012, 2027):
+        year_draws = fetch_year(year)
+        all_fetched.extend(year_draws)
 
-    print(f"\nFetched {len(fetched)} total draws from source.")
+    new_draws = [d for d in all_fetched if d["Date"] not in seen_dates]
+
+    print(f"\nTotal fetched from source (2012-2026): {len(all_fetched)}")
     print(f"New draws to add: {len(new_draws)}")
 
-    if not new_draws:
-        print("No new draws found. CSV is up to date.")
-        return
+    # Συγχώνευση παλιών και νέων χωρίς διπλότυπα
+    merged_dict = {r["Date"]: r for r in existing_rows}
+    for nd in new_draws:
+        merged_dict[nd["Date"]] = nd
 
-    all_rows = existing_rows + new_draws
-    all_rows.sort(key=lambda r: r.get("Date", ""))
+    all_rows = list(merged_dict.values())
+    all_rows.sort(key=lambda r: r["Date"])
 
     CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
    
-    # Τα πεδία ταιριάζουν ακριβώς με την κεφαλίδα του υφιστάμενου CSV
     fieldnames = ["Date", "N1", "N2", "N3", "N4", "N5", "E1", "E2", "Jackpot_Euros"]
    
     with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
@@ -135,8 +148,7 @@ def main():
         writer.writeheader()
         writer.writerows(all_rows)
 
-    print(f"\nSaved {len(all_rows)} total draws to {CSV_PATH}")
-    print(f"Added {len(new_draws)} new draws.")
+    print(f"\nSUCCESS: Saved {len(all_rows)} total historical draws to {CSV_PATH}")
 
 if __name__ == "__main__":
     main()

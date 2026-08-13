@@ -85,14 +85,14 @@ def load_existing():
 
 # ── FETCH & PARSE ───────────────────────────────────────────────────
 def fetch_draws():
-    print(f"🔍 Fetching {SOURCE_URL} ...")
+    print(f"Fetching {SOURCE_URL} ...")
     resp = requests.get(SOURCE_URL, headers=HEADERS, timeout=30)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
     table = soup.find("table")
     if not table:
-        raise RuntimeError("No table found on page — site structure may have changed.")
+        raise RuntimeError("No table found on page – site structure may have changed.")
 
     rows = table.find_all("tr")
     draws = []
@@ -100,36 +100,47 @@ def fetch_draws():
 
     for tr in rows[1:]:  # skip header
         tds = tr.find_all(["td", "th"])
-        if len(tds) < 4:
+        if len(tds) < 3:
             continue
 
         try:
-            date_str   = tds[0].get_text(strip=True)
-            day_str    = tds[1].get_text(strip=True)
-            balls_cell = tds[2].get_text(strip=True)
+            # Μαζεύουμε όλα τα κείμενα των κελιών
+            texts = [td.get_text(strip=True) for td in tds]
+
+            # Η ημερομηνία είναι πάντα στο πρώτο κελί
+            date_str = texts[0]
+           
+            # Ελέγχουμε αν το 2ο κελί είναι η ημέρα (π.χ. Tue/Fri)
+            if texts[1] in ["Tue", "Fri", "Tue,", "Fri,"]:
+                day_str = texts[1]
+                # Όλα τα υπόλοιπα κελιά περιέχουν τους αριθμούς
+                balls_cell = " ".join(texts[2:])
+            else:
+                day_str = ""
+                balls_cell = " ".join(texts[1:])
 
             draw_date = parse_date(date_str)
-            main, euro = parse_balls(balls_cell)
+            main_nums, euro_nums = parse_balls(balls_cell)
 
             draws.append({
                 "Date": draw_date.isoformat(),
                 "Day": day_str,
-                "N1": main[0],
-                "N2": main[1],
-                "N3": main[2],
-                "N4": main[3],
-                "N5": main[4],
-                "E1": euro[0],
-                "E2": euro[1],
+                "N1": main_nums[0],
+                "N2": main_nums[1],
+                "N3": main_nums[2],
+                "N4": main_nums[3],
+                "N5": main_nums[4],
+                "E1": euro_nums[0],
+                "E2": euro_nums[1],
             })
         except Exception as e:
             skipped += 1
             if skipped <= 3:
-                print(f"   ⚠️  Skipping row: {e}")
+                print(f"Skipping row: {e}")
             continue
 
     if skipped > 3:
-        print(f"   ⚠️  ... and {skipped - 3} more skipped rows")
+        print(f" ... and {skipped - 3} more skipped rows")
 
     draws.sort(key=lambda d: d["Date"])
     return draws

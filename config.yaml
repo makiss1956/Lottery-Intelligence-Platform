@@ -8,7 +8,7 @@ analytics:
 
 notifications:
   email:
-    enabled: false
+    enabled: true
     smtp_server: "smtp.gmail.com"
     smtp_port: 587
 

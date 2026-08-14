@@ -87,12 +87,15 @@ class ProbabilityPredictor:
         if not candidates or not extended_pool:
             return candidates
 
+        # Remove duplicates while preserving order
+        candidates = list(dict.fromkeys(candidates))
+
         odd = sum(1 for n in candidates if n % 2 != 0)
         even = len(candidates) - odd
 
         if odd == 0 or even == 0:
             target_odd = (odd == 0)
-            replacement = next((n for n in extended_pool if (n % 2 != 0) == target_odd), None)
+            replacement = next((n for n in extended_pool if (n % 2 != 0) == target_odd and n not in candidates), None)
             if replacement is not None:
                 removed = candidates.pop()
                 candidates.append(replacement)
@@ -102,6 +105,8 @@ class ProbabilityPredictor:
         if current_sum < 90 or current_sum > 160:
             for i, num in enumerate(candidates):
                 for repl in extended_pool:
+                    if repl in candidates:
+                        continue
                     new_sum = current_sum - num + repl
                     if 90 <= new_sum <= 160:
                         candidates[i] = repl

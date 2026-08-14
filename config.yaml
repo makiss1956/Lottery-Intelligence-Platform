@@ -1,31 +1,14 @@
-# Lottery Intelligence Platform - Configuration
-# Μην ανεβάσεις ποτέ credentials σε GitHub. Χρησιμοποίησε .env για secrets.
-
-lottery:
-  name: "Eurojackpot"
-  primary_range: [1, 50]      # 5 main numbers
-  euro_range: [1, 12]         # 2 euro numbers
-  draw_days: ["Tuesday", "Friday"]
-
-database:
-  path: "data/lottery_data.db"
-  backup_dir: "data/backups"
-
 analytics:
   default_primary_candidates: 7
   default_euro_candidates: 3
-  cache_ttl_minutes: 60       # Caching για frequency results
-  delay_weight_factor: 1.0    # Πόσο βαρύνει το delay στο scoring
-
-importer:
-  source_url: "https://www.euro-jackpot.org/en/results/"
-  timeout_seconds: 30
-  max_retries: 3
-  retry_delay_seconds: 5
+  cache_ttl_minutes: 60
+  delay_weight_factor: 1.0
+  frequency_weight: 0.7
+  delay_weight: 0.3
 
 notifications:
   email:
-    enabled: false            # Άλλαξε σε true όταν ρυθμίσεις SMTP
+    enabled: false
     smtp_server: "smtp.gmail.com"
     smtp_port: 587
 
@@ -33,8 +16,4 @@ paths:
   logs: "logs"
   data: "data"
   cache: ".cache"
-
-# Ερευνητικές παράμετροι
-research:
-  odd_even_balance_target: [2, 3]   # 2 odd + 3 even ή 3 odd + 2 even
-  sum_range_target: [90, 160]       # Ιδανικό εύρος αθροίσματος 5 αριθμών
+  reports: "reports"

@@ -2,8 +2,9 @@ name: Eurojackpot Automated Pipeline
 
 on:
   schedule:
-    # Tuesday and Friday at 21:00 UTC (midnight Greece time)
-    - cron: '0 21 * * 2,5'
+    # Τρίτη & Παρασκευή 22:00 UTC = 01:00 Ελλάδας (καλοκαίρι) / 00:00 (χειμώνα)
+    # Η κλήρωση γίνεται 18:00-19:00 UTC, οπότε τρέχουμε 3-4 ώρες μετά για σιγουριά
+    - cron: '0 22 * * 2,5'
   workflow_dispatch:
 
 jobs:
@@ -25,15 +26,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Fetch Latest Draw & Update Database
-        run: python cli.py fetch
-        env:
-          LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
-          LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
-          LOTTERY_EMAIL_TO: ${{ secrets.LOTTERY_EMAIL_TO }}
-
-      - name: Generate Predictions
-        run: python cli.py predict --primary 7 --euro 3
+      - name: Run Full Pipeline (Fetch + Predict + Email + Dashboard)
+        run: python src/main.py
         env:
           LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
           LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
@@ -46,4 +40,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lottery-reports
-          path: reports/
+          path: |
+            reports/
+            data/

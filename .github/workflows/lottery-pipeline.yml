@@ -2,14 +2,13 @@ name: Eurojackpot Automated Pipeline
 
 on:
   schedule:
-    # Τρίτη και Παρασκευή στις 21:00 UTC (00:00 ώρα Ελλάδας)
+    # Tuesday and Friday at 21:00 UTC (midnight Greece time)
     - cron: '0 21 * * 2,5'
-  workflow_dispatch: # Επιτρέπει και χειροκίνητη εκτέλεση
+  workflow_dispatch:
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,23 +18,32 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt
 
       - name: Fetch Latest Draw & Update Database
-        run: |
-          python cli.py fetch
+        run: python cli.py fetch
+        env:
+          LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
+          LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
+          LOTTERY_EMAIL_TO: ${{ secrets.LOTTERY_EMAIL_TO }}
 
       - name: Generate Predictions
-        run: |
-          python cli.py predict --primary 7 --euro 3
+        run: python cli.py predict --primary 7 --euro 3
+        env:
+          LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
+          LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
+          LOTTERY_EMAIL_TO: ${{ secrets.LOTTERY_EMAIL_TO }}
 
-      - name: Auto-Commit & Push Updated Database
-        uses: stefanzweifel/git-auto-commit-action@v5
+      - name: Run Tests
+        run: python -m pytest tests/ -v || true
+
+      - name: Upload Reports
+        uses: actions/upload-artifact@v4
         with:
-          commit_message: 'auto: Update lottery database with latest draw'
-          file_pattern: 'data/lottery.db'
+          name: lottery-reports
+          path: reports/

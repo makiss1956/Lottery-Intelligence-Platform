@@ -18,7 +18,7 @@ from src.core.logger import get_logger
 logger = get_logger(__name__)
 
 
-class EuroJackpotImporter:
+class EurojackpotImporter:
     """Fetches latest Eurojackpot draw data."""
 
     def __init__(self, db_manager: Optional[DBManager] = None):
@@ -42,11 +42,23 @@ class EuroJackpotImporter:
         """Try web first, fallback to CSV. Returns latest draw dict or None."""
         draw = self._fetch_from_web()
         if draw:
+            # Check if already in database
+            if self.db:
+                existing = self.db.get_latest_draws(limit=1)
+                if existing and existing[0]["draw_date"] == draw["draw_date"]:
+                    logger.info("Draw %s already in database.", draw["draw_date"])
+                    return None
             logger.info("Fetched latest draw from web: %s", draw.get("draw_date"))
             return draw
         if self.fallback_to_csv:
             draw = self._fetch_from_csv()
             if draw:
+                # Check if already in database
+                if self.db:
+                    existing = self.db.get_latest_draws(limit=1)
+                    if existing and existing[0]["draw_date"] == draw["draw_date"]:
+                        logger.info("Draw %s already in database.", draw["draw_date"])
+                        return None
                 logger.info("Fetched latest draw from CSV fallback: %s", draw.get("draw_date"))
                 return draw
         logger.warning("Could not fetch latest draw from any source.")
@@ -139,10 +151,14 @@ class EuroJackpotImporter:
             return None
 
     def _guess_last_draw_date(self) -> str:
-        """Guess the most recent draw date (Tue or Fri)."""
+        """Guess the most recent completed draw date (Tue or Fri)."""
         today = datetime.now()
         weekday = today.weekday()
-        if weekday == 1 or weekday == 4:
+        hour = today.hour
+        
+        if weekday == 1 and hour >= 22:
+            return today.strftime("%Y-%m-%d")
+        elif weekday == 4 and hour >= 22:
             return today.strftime("%Y-%m-%d")
         elif weekday > 4:
             days_back = weekday - 4
@@ -150,8 +166,10 @@ class EuroJackpotImporter:
         elif weekday > 1:
             days_back = weekday - 1
             return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        else:
+        elif weekday == 0:
             return (today - timedelta(days=3)).strftime("%Y-%m-%d")
+        else:
+            return (today - timedelta(days=4)).strftime("%Y-%m-%d")
 
     def _parse_date(self, text: str) -> Optional[str]:
         """Try common date formats."""

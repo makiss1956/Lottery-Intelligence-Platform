@@ -32,7 +32,6 @@ def cmd_predict(args):
     freq_analyzer = FrequencyAnalyzer(db_mgr)
     pattern_analyzer = PatternAnalyzer(db_mgr)
     
-    # Ενεργοποίηση Composite Predictor με PatternAnalyzer
     predictor = ProbabilityPredictor(
         frequency_analyzer=freq_analyzer,
         pattern_analyzer=pattern_analyzer
@@ -53,7 +52,7 @@ def cmd_predict(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Lottery Intelligence Platform CLI")
-    subparsers = parser.add_parsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Command: fetch
     subparsers.add_parser("fetch", help="Fetch latest draw results from source")

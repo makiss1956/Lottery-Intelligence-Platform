@@ -1,6 +1,6 @@
 """Main Execution Pipeline for Lottery Intelligence Platform."""
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.core.logger import get_logger
 from src.database.db_manager import DBManager
 from src.importers.eurojackpot_importer import EurojackpotImporter
@@ -10,35 +10,48 @@ from src.analytics.predictor import ProbabilityPredictor
 
 logger = get_logger("Main")
 
+def get_next_draw_date():
+    """Calculate the next Eurojackpot draw date (Tuesday or Friday)."""
+    today = datetime.now()
+    weekday = today.weekday()
+    hour = today.hour
+    
+    # Eurojackpot draws: Tuesday (1), Friday (4)
+    if weekday == 1 and hour >= 22:
+        # After Tuesday draw -> next is Friday
+        days_until = 4 - weekday
+    elif weekday == 4 and hour >= 22:
+        # After Friday draw -> next is Tuesday
+        days_until = (7 - weekday) + 1
+    elif weekday < 1:
+        days_until = 1 - weekday
+    elif weekday < 4:
+        days_until = 4 - weekday
+    else:
+        days_until = (7 - weekday) + 1
+    
+    return (today + timedelta(days=days_until)).strftime("%Y-%m-%d")
+
 def run_pipeline():
     logger.info("Starting Lottery Intelligence Pipeline...")
 
-    # 1. Fetch Latest Draw Data
-    importer = EurojackpotImporter()
-    draws = importer.fetch_latest_draws()
     db = DBManager()
 
-    if draws:
-        latest = draws[0]
-        draw_date = latest.get("draw_date", "")
-        if not draw_date:
-            logger.error("Fetched draw has no date.")
-            sys.exit(1)
-        
-        try:
-            datetime.strptime(draw_date, "%Y-%m-%d")
-        except ValueError:
-            logger.error("Invalid draw_date format: %s", draw_date)
-            sys.exit(1)
-
+    # 1. Fetch Latest Draw Data
+    importer = EurojackpotImporter(db_manager=db)
+    draw = importer.fetch_latest_draw()
+    
+    if draw:
+        draw_date = draw.get("draw_date", "")
         logger.info("Fetched draw for %s: primary=%s euro=%s",
-                    draw_date, latest.get("primary_numbers"), latest.get("euro_numbers"))
-        
-        inserted = db.insert_draw(latest)
+                    draw_date, draw.get("primary_numbers"), draw.get("euro_numbers"))
+        inserted = db.insert_draw(draw)
         if inserted:
             logger.info("Successfully saved latest draw to database.")
         else:
             logger.info("Draw %s already exists in database.", draw_date)
+    else:
+        logger.info("No new draw to fetch.")
 
     # 2. Run Analytics & Predictions
     freq_analyzer = FrequencyAnalyzer(db)
@@ -46,17 +59,28 @@ def run_pipeline():
     predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
 
     pred_result = predictor.predict_candidate_set(primary_count=7, euro_count=3)
+    next_draw = get_next_draw_date()
+
+    # Save prediction to database
+    db.insert_prediction({
+        "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "for_draw_date": next_draw,
+        "predicted_primary": pred_result["primary_candidates"],
+        "predicted_euro": pred_result["euro_candidates"],
+        "method": pred_result.get("method"),
+        "confidence": pred_result.get("confidence")
+    })
 
     stats = {
         "total_draws": len(db.get_all_draws())
     }
 
-    # 3. Send Email Notification (if configured)
+    # 3. Send Email Notification
     try:
         from src.notifications.email_sender import LotteryEmailSender
         sender = LotteryEmailSender()
         sender.send_prediction({
-            "prediction_for_date": "Next Draw",
+            "prediction_for_date": next_draw,
             "primary_candidates": pred_result["primary_candidates"],
             "euro_candidates": pred_result["euro_candidates"],
             "method": pred_result.get("method"),

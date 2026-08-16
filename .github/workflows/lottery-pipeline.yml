@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # Απαραίτητο για το git push της βάσης δεδομένων
+  contents: write
 
 jobs:
   run-pipeline:

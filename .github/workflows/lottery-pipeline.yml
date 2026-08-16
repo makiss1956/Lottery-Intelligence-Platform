@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ "main" ]
   schedule:
-    # Εκτέλεση του pipeline κάθε Τρίτη και Παρασκευή στις 21:00 UTC (μετά τις κληρώσεις Eurojackpot)
+    # Εκτέλεση κάθε Τρίτη και Παρασκευή στις 21:00 UTC (μετά τις κληρώσεις Eurojackpot)
     - cron: '0 21 * * 2,5'
   workflow_dispatch: # Επιτρέπει τη χειροκίνητη εκτέλεση από το GitHub UI
 
@@ -19,7 +19,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/checkout@v4
+      uses: actions/setup-python@v5  # <-- ΔΙΟΡΘΩΣΗ: setup-python αντί για checkout
       with:
         python-version: '3.11'
 
@@ -45,8 +45,18 @@ jobs:
 
     - name: Run Main Application Strategy
       if: success() # Εκτελείται μόνο αν όλα τα pytests περάσουν με επιτυχία
+      env:
+        PYTHONPATH: .
       run: |
-        python main.py
+        # ΔΙΟΡΘΩΣΗ: Έλεγχος αν το main.py είναι στη ρίζα ή μέσα στο src/
+        if [ -f main.py ]; then
+          python main.py
+        elif [ -f src/main.py ]; then
+          python src/main.py
+        else
+          echo "Error: main.py not found in root or src/"
+          exit 1
+        fi
 
     - name: Commit and Push DB Updates
       if: success()

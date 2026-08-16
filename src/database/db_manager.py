@@ -186,3 +186,32 @@ class DBManager:
                     "confidence": conf_data
                 })
             return result
+
+    def validate_latest_prediction(self, latest_draw: dict) -> dict:
+        """Ελέγχει αν η τελευταία πρόβλεψη ταίριαξε με την πραγματική κλήρωση."""
+        predictions = self.get_predictions(limit=1)
+        if not predictions:
+            logger.info("No previous prediction to validate.")
+            return {}
+
+        last_pred = predictions[0]
+        if last_pred["for_draw_date"] != latest_draw.get("draw_date"):
+            logger.info("Latest prediction was for %s, but latest draw is %s. Skipping validation.",
+                        last_pred["for_draw_date"], latest_draw.get("draw_date"))
+            return {}
+
+        from src.analytics.backtester import Backtester
+        result = Backtester.evaluate_prediction(
+            predicted_mains=last_pred["predicted_primary"],
+            predicted_euros=last_pred["predicted_euro"],
+            actual_draw=latest_draw
+        )
+
+        logger.info(
+            "Validation for %s: Main Hits = %d/5, Euro Hits = %d/2, Success = %s",
+            latest_draw.get("draw_date"),
+            result["main_hits_count"],
+            result["euro_hits_count"],
+            "YES" if result["target_achieved"] else "NO"
+        )
+        return result

@@ -1,10 +1,12 @@
 """Database Manager for SQLite storage."""
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from src.core.logger import get_logger
 
 logger = get_logger("DBManager")
+
 
 class DBManager:
     def __init__(self, db_path: Optional[str] = None):
@@ -18,8 +20,11 @@ class DBManager:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        # Προσθήκη timeout για αποφυγή database locks
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
+        # Ενεργοποίηση WAL mode για καλύτερη απόδοση σε παράλληλες λειτουργίες
+        conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
     def _init_db(self):
@@ -49,9 +54,17 @@ class DBManager:
         """Alias for test compatibility."""
         self._init_db()
 
+    @staticmethod
+    def _parse_num_string(num_str: str) -> List[int]:
+        """Βοηθητική μέθοδος: Μετατρέπει το string "1,2,3" σε λίστα [1, 2, 3]."""
+        if not num_str:
+            return []
+        return [int(x) for x in num_str.split(",") if x.strip()]
+
     def insert_draw(self, draw: dict) -> bool:
         p = draw.get("primary_numbers", [])
         e = draw.get("euro_numbers", [])
+
         if len(p) != 5 or len(e) != 2:
             logger.error("Invalid draw structure: primary=%s, euro=%s", len(p), len(e))
             return False
@@ -76,39 +89,32 @@ class DBManager:
             logger.error("Failed to insert draw %s: %s", draw_date, err)
             return False
 
-    def get_all_draws(self) -> List[Dict[str, Any]]:
+    def _fetch_draws_query(self, sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+        """Βοηθητική μέθοδος για την εκτέλεση ερωτημάτων αναζήτησης κληρώσεων."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT draw_date, primary_numbers, euro_numbers FROM eurojackpot_draws ORDER BY draw_date DESC")
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
-            
-            result = []
-            for r in rows:
-                result.append({
+
+            return [
+                {
                     "draw_date": r["draw_date"],
-                    "primary_numbers": [int(x) for x in r["primary_numbers"].split(",") if x],
-                    "euro_numbers": [int(x) for x in r["euro_numbers"].split(",") if x]
-                })
-            return result
+                    "primary_numbers": self._parse_num_string(r["primary_numbers"]),
+                    "euro_numbers": self._parse_num_string(r["euro_numbers"])
+                }
+                for r in rows
+            ]
+
+    def get_all_draws(self) -> List[Dict[str, Any]]:
+        return self._fetch_draws_query(
+            "SELECT draw_date, primary_numbers, euro_numbers FROM eurojackpot_draws ORDER BY draw_date DESC"
+        )
 
     def get_latest_draws(self, limit: int = 10) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT draw_date, primary_numbers, euro_numbers 
-                FROM eurojackpot_draws 
-                ORDER BY draw_date DESC 
-                LIMIT ?
-            """, (limit,))
-            rows = cursor.fetchall()
-            result = []
-            for r in rows:
-                result.append({
-                    "draw_date": r["draw_date"],
-                    "primary_numbers": [int(x) for x in r["primary_numbers"].split(",") if x],
-                    "euro_numbers": [int(x) for x in r["euro_numbers"].split(",") if x]
-                })
-            return result
+        return self._fetch_draws_query(
+            "SELECT draw_date, primary_numbers, euro_numbers FROM eurojackpot_draws ORDER BY draw_date DESC LIMIT ?",
+            (limit,)
+        )
 
     def get_draw_count(self) -> int:
         with self._get_connection() as conn:
@@ -124,6 +130,13 @@ class DBManager:
 
     def insert_prediction(self, prediction: dict) -> bool:
         try:
+            # Διόρθωση: Αποθήκευση του confidence ως έγκυρο JSON string
+            confidence_val = prediction.get("confidence", {})
+            if isinstance(confidence_val, (dict, list)):
+                confidence_str = json.dumps(confidence_val)
+            else:
+                confidence_str = str(confidence_val)
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -133,10 +146,10 @@ class DBManager:
                 """, (
                     prediction.get("prediction_date"),
                     prediction.get("for_draw_date"),
-                    ",".join(map(str, prediction.get("predicted_primary", []))),
-                    ",".join(map(str, prediction.get("predicted_euro", []))),
+                    ",".join(map(str, sorted(prediction.get("predicted_primary", [])))),
+                    ",".join(map(str, sorted(prediction.get("predicted_euro", [])))),
                     prediction.get("method", ""),
-                    str(prediction.get("confidence", {}))
+                    confidence_str
                 ))
                 conn.commit()
                 return True
@@ -153,15 +166,23 @@ class DBManager:
                 LIMIT ?
             """, (limit,))
             rows = cursor.fetchall()
+
             result = []
             for r in rows:
+                raw_conf = r["confidence"]
+                # Διόρθωση: Ανάγνωση του JSON string επιστρέφοντας πάλι dictionary/object
+                try:
+                    conf_data = json.loads(raw_conf) if raw_conf else {}
+                except (json.JSONDecodeError, TypeError):
+                    conf_data = raw_conf
+
                 result.append({
                     "id": r["id"],
                     "prediction_date": r["prediction_date"],
                     "for_draw_date": r["for_draw_date"],
-                    "predicted_primary": [int(x) for x in r["predicted_primary"].split(",") if x],
-                    "predicted_euro": [int(x) for x in r["predicted_euro"].split(",") if x],
+                    "predicted_primary": self._parse_num_string(r["predicted_primary"]),
+                    "predicted_euro": self._parse_num_string(r["predicted_euro"]),
                     "method": r["method"],
-                    "confidence": r["confidence"]
+                    "confidence": conf_data
                 })
             return result

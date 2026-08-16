@@ -1,186 +1,97 @@
-"""Eurojackpot data importer with web scraping + CSV fallback."""
-
-import os
-import re
-import csv
-import logging
+"""Eurojackpot Data Importer using OPAP Official API."""
 import requests
-import pandas as pd
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
-from bs4 import BeautifulSoup
-
-from src.database.db_manager import DBManager
-from src.core.config import get_config
 from src.core.logger import get_logger
 
-logger = get_logger(__name__)
-
+logger = get_logger("EurojackpotImporter")
 
 class EurojackpotImporter:
-    """Fetches latest Eurojackpot draw data."""
+    def __init__(self, db_manager=None):
+        self.db_manager = db_manager
+        # Επίσημο API ΟΠΑΠ για το Eurojackpot (Game ID 5104)
+        self.api_url_last = "https://api.opap.gr/draws/v3.0/5104/last-result/12"
+        self.api_url_history = "https://api.opap.gr/draws/v3.0/5104/last/50"
 
-    def __init__(self, db_manager: Optional[DBManager] = None):
-        self.db = db_manager
-        self.cfg = get_config()
-        temp_csv_path = self.cfg.get("importer.csv_path")
-        if temp_csv_path is None:
-            temp_csv_path = "data/eurojackpot_raw_history.csv"
-        self.csv_path = Path(temp_csv_path)
-
-        self.delimiter = self.cfg.get("importer.csv_delimiter", ";")
-        self.fallback_to_csv = self.cfg.get("importer.fallback_to_csv", True)
-
-    def run(self, force: bool = False) -> bool:
-        """Pipeline execution entry point."""
-        logger.info("Starting Eurojackpot importer pipeline task...")
-        draws = self.fetch_latest_draws()
-        return len(draws) > 0
-
-    def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
-        """Try web first, fallback to CSV. Returns latest draw dict or None."""
-        draw = self._fetch_from_web()
-        if draw:
-            # Check if already in database
-            if self.db:
-                existing = self.db.get_latest_draws(limit=1)
-                if existing and existing[0]["draw_date"] == draw["draw_date"]:
-                    logger.info("Draw %s already in database.", draw["draw_date"])
-                    return None
-            logger.info("Fetched latest draw from web: %s", draw.get("draw_date"))
-            return draw
-        if self.fallback_to_csv:
-            draw = self._fetch_from_csv()
-            if draw:
-                # Check if already in database
-                if self.db:
-                    existing = self.db.get_latest_draws(limit=1)
-                    if existing and existing[0]["draw_date"] == draw["draw_date"]:
-                        logger.info("Draw %s already in database.", draw["draw_date"])
-                        return None
-                logger.info("Fetched latest draw from CSV fallback: %s", draw.get("draw_date"))
-                return draw
-        logger.warning("Could not fetch latest draw from any source.")
-        return None
-
-    def _fetch_from_web(self) -> Optional[Dict[str, Any]]:
-        """Scrape latest results from euro-jackpot.org."""
+    def fetch_latest_draw(self):
+        """Fetch the single latest draw from OPAP API."""
         try:
-            url = "https://www.euro-jackpot.org/en/results/"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0"
-            }
-            resp = requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(self.api_url_last, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
 
-            result_box = soup.find("div", class_=re.compile("result", re.I))
-            if not result_box:
-                balls = soup.find_all("span", class_=re.compile("ball", re.I))
-                if len(balls) < 7:
-                    return None
-                nums = [int(b.get_text(strip=True)) for b in balls if b.get_text(strip=True).isdigit()]
-                if len(nums) >= 7:
-                    primary = sorted(nums[:5])
-                    euro = sorted(nums[5:7])
-                    draw_date = self._guess_last_draw_date()
-                    return {
-                        "draw_number": None,
-                        "draw_date": draw_date,
-                        "primary_numbers": primary,
-                        "euro_numbers": euro,
-                        "jackpot_euros": None
-                    }
-
-            date_elem = soup.find("time") or soup.find("span", class_=re.compile("date", re.I))
-            draw_date = None
-            if date_elem:
-                date_text = date_elem.get_text(strip=True)
-                draw_date = self._parse_date(date_text)
-            if not draw_date:
-                draw_date = self._guess_last_draw_date()
-
-            nums = []
-            for b in soup.find_all("span", class_=re.compile("ball", re.I)):
-                txt = b.get_text(strip=True)
-                if txt.isdigit():
-                    nums.append(int(txt))
-            if len(nums) < 7:
+            draws = data if isinstance(data, list) else [data]
+            if not draws:
                 return None
 
-            primary = sorted(nums[:5])
-            euro = sorted(nums[5:7])
+            latest = draws[0]
+            draw_time = latest.get("drawTime")
+            if isinstance(draw_time, (int, float)):
+                draw_date = datetime.fromtimestamp(draw_time / 1000).strftime("%Y-%m-%d")
+            else:
+                draw_date = str(draw_time)[:10]
+
+            winning_numbers = latest.get("winningNumbers", {})
+            primary = winning_numbers.get("list", [])
+            euro = winning_numbers.get("bonus", [])
 
             return {
-                "draw_number": None,
+                "draw_id": latest.get("drawId"),
                 "draw_date": draw_date,
                 "primary_numbers": primary,
-                "euro_numbers": euro,
-                "jackpot_euros": None
+                "euro_numbers": euro
             }
         except Exception as e:
-            logger.warning("Web fetch failed: %s", e)
+            logger.error("Failed to fetch latest draw from OPAP API: %s", e)
             return None
 
-    def _fetch_from_csv(self) -> Optional[Dict[str, Any]]:
-        """Read the last row from the local CSV file."""
-        if not self.csv_path.exists():
-            logger.warning("CSV file not found: %s", self.csv_path)
-            return None
+    def sync_history(self):
+        """Fetch recent history (last 50 draws) and update the database."""
         try:
-            with open(self.csv_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f, delimiter=self.delimiter)
-                rows = list(reader)
-            if not rows:
-                return None
-            last = rows[-1]
-            return {
-                "draw_number": None,
-                "draw_date": last.get("Date", "").strip(),
-                "primary_numbers": sorted([
-                    int(last.get(f"N{i}", 0)) for i in range(1, 6)
-                ]),
-                "euro_numbers": sorted([
-                    int(last.get(f"E{i}", 0)) for i in range(1, 3)
-                ]),
-                "jackpot_euros": float(last.get("Jackpot_Euros", 0) or 0)
-            }
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(self.api_url_history, headers=headers, timeout=10)
+            if response.status_code == 200:
+                draws = response.json()
+                count = 0
+                for d in draws:
+                    draw_time = d.get("drawTime")
+                    if isinstance(draw_time, (int, float)):
+                        draw_date = datetime.fromtimestamp(draw_time / 1000).strftime("%Y-%m-%d")
+                    else:
+                        draw_date = str(draw_time)[:10]
+
+                    w_nums = d.get("winningNumbers", {})
+                    draw_obj = {
+                        "draw_id": d.get("drawId"),
+                        "draw_date": draw_date,
+                        "primary_numbers": w_nums.get("list", []),
+                        "euro_numbers": w_nums.get("bonus", [])
+                    }
+                    if self.db_manager:
+                        inserted = self.db_manager.insert_draw(draw_obj)
+                        if inserted:
+                            count += 1
+                logger.info("Successfully synced draw history. New draws added: %d", count)
         except Exception as e:
-            logger.error("CSV read error: %s", e)
-            return None
+            logger.warning("History sync encountered an issue: %s", e)
 
-    def _guess_last_draw_date(self) -> str:
-        """Guess the most recent completed draw date (Tue or Fri)."""
+    def get_next_draw_date(self):
+        """Calculate next Eurojackpot draw date (Tuesday or Friday)."""
         today = datetime.now()
-        weekday = today.weekday()
+        weekday = today.weekday()  # Monday=0, Tuesday=1, Friday=4
         hour = today.hour
-        
-        if weekday == 1 and hour >= 22:
-            return today.strftime("%Y-%m-%d")
-        elif weekday == 4 and hour >= 22:
-            return today.strftime("%Y-%m-%d")
-        elif weekday > 4:
-            days_back = weekday - 4
-            return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        elif weekday > 1:
-            days_back = weekday - 1
-            return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        elif weekday == 0:
-            return (today - timedelta(days=3)).strftime("%Y-%m-%d")
+
+        if weekday == 1 and hour < 21:
+            target = today
+        elif weekday == 4 and hour < 21:
+            target = today
         else:
-            return (today - timedelta(days=4)).strftime("%Y-%m-%d")
+            days_ahead = 1
+            while True:
+                next_day = today + timedelta(days=days_ahead)
+                if next_day.weekday() in (1, 4):
+                    target = next_day
+                    break
+                days_ahead += 1
 
-    def _parse_date(self, text: str) -> Optional[str]:
-        """Try common date formats."""
-        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%B %d, %Y", "%d %B %Y"):
-            try:
-                return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-        return None
-
-    def fetch_latest_draws(self) -> List[Dict[str, Any]]:
-        """Compatibility wrapper returning list."""
-        draw = self.fetch_latest_draw()
-        return [draw] if draw else []
+        return target.strftime("%Y-%m-%d")

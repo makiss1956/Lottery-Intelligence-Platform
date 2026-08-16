@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # Απαραίτητο για να επιτρέπεται το git push στη βάση δεδομένων
+  contents: write  # Απαραίτητο για το git push της βάσης δεδομένων
 
 jobs:
   run-pipeline:
@@ -29,7 +29,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Full Pipeline (Fetch + Predict + Email + Dashboard)
-        run: python main.py
+        run: python src/main.py
         env:
           PYTHONPATH: ${{ github.workspace }}
           LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}

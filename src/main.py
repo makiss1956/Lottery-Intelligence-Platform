@@ -1,6 +1,6 @@
 """Main Execution Pipeline for Lottery Intelligence Platform."""
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from src.core.logger import get_logger
 from src.database.db_manager import DBManager
 from src.importers.eurojackpot_importer import EurojackpotImporter
@@ -10,110 +10,78 @@ from src.analytics.predictor import ProbabilityPredictor
 
 logger = get_logger("Main")
 
-def get_next_draw_date():
-    """Calculate the next Eurojackpot draw date (Tuesday or Friday)."""
-    today = datetime.now()
-    weekday = today.weekday()  # Monday is 0, Tuesday is 1, Friday is 4
-    hour = today.hour
-
-    # Eurojackpot draws occur on Tuesdays (1) and Fridays (4) around 21:00-22:00
-    if weekday == 1 and hour < 21:
-        # Tuesday before draw -> draw is today
-        target = today
-    elif weekday == 4 and hour < 21:
-        # Friday before draw -> draw is today
-        target = today
-    else:
-        # Find the next Tuesday or Friday
-        days_ahead = 1
-        while True:
-            next_day = today + timedelta(days=days_ahead)
-            if next_day.weekday() in (1, 4):
-                target = next_day
-                break
-            days_ahead += 1
-
-    return target.strftime("%Y-%m-%d")
-
 def run_pipeline():
-    logger.info("Starting Lottery Intelligence Pipeline...")
+    logger.info("=== Starting Eurojackpot Intelligence Pipeline ===")
 
     db = DBManager()
     importer = EurojackpotImporter(db_manager=db)
 
-    # 1. Fetch & Update Draw Data (Ensuring History Exists)
-    logger.info("Checking and fetching draw history...")
-    
-    # Πρώτα εκτελούμε συγχρονισμό/backfill αν η βάση είναι άδεια ή πίσω σε κληρώσεις
-    if hasattr(importer, 'sync_history'):
-        importer.sync_history()
-    else:
-        draw = importer.fetch_latest_draw()
-        if draw:
-            draw_date = draw.get("draw_date", "")
-            inserted = db.insert_draw(draw)
-            if inserted:
-                logger.info("Successfully saved latest draw (%s) to database.", draw_date)
-            else:
-                logger.info("Draw %s already exists in database.", draw_date)
-        else:
-            logger.warning("No draw returned from importer.")
+    # 1. Φέρνουμε τις πρόσφατες κληρώσεις & ενημερώνουμε τη βάση
+    logger.info("1. Syncing draw history from OPAP API...")
+    importer.sync_history()
 
-    # 2. Guard Check: Verify Database Contains Data
     all_draws = db.get_all_draws()
-    total_draws_count = len(all_draws) if all_draws else 0
-    logger.info("Total draws in database: %d", total_draws_count)
-
-    if total_draws_count == 0:
-        logger.error("CRITICAL: Database is completely empty! Predictions cannot be calculated.")
+    if not all_draws:
+        logger.error("CRITICAL: Database has no draws. Cannot proceed.")
         sys.exit(1)
 
-    # 3. Run Analytics & Predictions
+    latest_draw = all_draws[0]
+    logger.info("Latest Draw in DB: Date %s | Primary: %s | Euro: %s",
+                latest_draw.get("draw_date"), 
+                latest_draw.get("primary_numbers"), 
+                latest_draw.get("euro_numbers"))
+
+    # 2. ΕΛΕΓΧΟΣ ΕΠΙΤΥΧΙΑΣ: Σύγκριση προηγούμενης πρόβλεψης με τη νέα κλήρωση
+    logger.info("2. Checking prediction performance against latest draw...")
+    if hasattr(db, 'validate_latest_prediction'):
+        db.validate_latest_prediction(latest_draw)
+
+    # 3. ΑΝΑΛΥΣΗ & ΝΕΑ ΠΡΟΒΛΕΨΗ
+    logger.info("3. Generating prediction for upcoming draw...")
     freq_analyzer = FrequencyAnalyzer(db)
     pattern_analyzer = PatternAnalyzer(db)
     predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
 
     pred_result = predictor.predict_candidate_set(primary_count=7, euro_count=3)
     
-    # Έλεγχος εγκυρότητας προβλέψεων (Αποφυγή αποστολής 0/None)
     primary_cands = pred_result.get("primary_candidates", [])
     euro_cands = pred_result.get("euro_candidates", [])
 
     if not primary_cands or all(v == 0 for v in primary_cands):
-        logger.error("Predictor returned empty or zero candidates! Check Frequency/Pattern Analyzers.")
+        logger.error("Predictor returned invalid zero candidates! Check analyzers.")
 
-    next_draw = get_next_draw_date()
+    next_draw_date = importer.get_next_draw_date()
 
-    # Save prediction to database
+    # Αποθήκευση της νέας πρόβλεψης στη βάση
     db.insert_prediction({
         "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "for_draw_date": next_draw,
+        "for_draw_date": next_draw_date,
         "predicted_primary": primary_cands,
         "predicted_euro": euro_cands,
         "method": pred_result.get("method", "Hybrid-Probability"),
         "confidence": pred_result.get("confidence", {})
     })
+    logger.info("Saved New Prediction for %s: Primary %s | Euro %s", next_draw_date, primary_cands, euro_cands)
 
-    stats = {
-        "total_draws": total_draws_count
-    }
-
-    # 4. Send Email Notification
+    # 4. ΑΠΟΣΤΟΛΗ EMAIL & REPORTS
     try:
         from src.notifications.email_sender import LotteryEmailSender
         sender = LotteryEmailSender()
+        stats = {
+            "total_draws": len(all_draws),
+            "latest_draw": latest_draw
+        }
         sender.send_prediction({
-            "prediction_for_date": next_draw,
+            "prediction_for_date": next_draw_date,
             "primary_candidates": primary_cands,
             "euro_candidates": euro_cands,
-            "method": pred_result.get("method", "Hybrid-Probability"),
-            "confidence": pred_result.get("confidence", {})
+            "method": pred_result.get("method", "Hybrid-Probability")
         }, stats)
-        logger.info("Email prediction notification sent successfully.")
+        logger.info("Email notification sent successfully.")
     except Exception as e:
-        logger.warning("Email notification skipped or failed: %s", e)
+        logger.warning("Email notification skipped/failed: %s", e)
 
-    # 5. Generate Dashboard Report
+    # 5. ΔΗΜΙΟΥΡΓΙΑ DASHBOARD
     try:
         from src.analytics.dashboard import SuccessDashboard
         dash = SuccessDashboard(db)
@@ -122,7 +90,7 @@ def run_pipeline():
     except Exception as e:
         logger.warning("Dashboard generation failed: %s", e)
 
-    logger.info("Pipeline execution completed successfully.")
+    logger.info("=== Pipeline Completed Successfully ===")
 
 if __name__ == "__main__":
     run_pipeline()

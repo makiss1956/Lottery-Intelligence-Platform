@@ -6,6 +6,9 @@ on:
     - cron: '0 22 * * 2,5'
   workflow_dispatch:
 
+permissions:
+  contents: write  # Απαραίτητο για να επιτρέπεται το git push στη βάση δεδομένων
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
@@ -26,19 +29,26 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Full Pipeline (Fetch + Predict + Email + Dashboard)
-        run: python src/main.py
+        run: python main.py
         env:
           PYTHONPATH: ${{ github.workspace }}
           LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
           LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
           LOTTERY_EMAIL_TO: ${{ secrets.LOTTERY_EMAIL_TO }}
 
+      - name: Commit and Push Updated Database & Reports
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/*.db reports/ || true
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update database and reports [skip ci]" && git push)
+
       - name: Run Tests
         run: python -m pytest tests/ -v || true
         env:
           PYTHONPATH: ${{ github.workspace }}
 
-      - name: Upload Reports
+      - name: Upload Reports Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lottery-reports

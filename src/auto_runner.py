@@ -3,10 +3,8 @@ import json
 import requests
 from datetime import datetime, timedelta
 from src.database.manager import DBManager
+from src.analytics.frequency_analyzer import FrequencyAnalyzer
 from src.analytics.predictor import ProbabilityPredictor
-
-# Αν έχετε έτοιμο frequency analyzer εισάγετέ τον εδώ, π.χ.:
-# from src.analytics.frequency_analyzer import FrequencyAnalyzer
 
 OPAP_URL = "https://opap.gr"
 LOG_FILE = "exports/predictions_history.md"
@@ -87,18 +85,17 @@ def run_pipeline():
     print("✅ Η νέα κλήρωση καταχωρήθηκε στη βάση δεδομένων SQLite!")
 
     # 4. Παραγωγή Νέας Πρόβλεψης για την Επόμενη Κλήρωση
-    # Εδώ αρχικοποιείτε τον FrequencyAnalyzer σας περνώντας του το db instance
-    # fa = FrequencyAnalyzer(db) 
-    fa = None # Αντικαταστήστε το με το πραγματικό σας αντικείμενο ανάλυσης συχνοτήτων
+    # Αρχικοποίηση του FrequencyAnalyzer περνώντας του το db instance
+    fa = FrequencyAnalyzer(db) 
     
+    # Αρχικοποίηση του Predictor με τον analyzer
     predictor = ProbabilityPredictor(frequency_analyzer=fa)
     
-    # Παραγωγή υποψηφίων (7 κύρια, 3 euro όπως ορίζει το 7+3 παράθυρο του predictor σας)
+    # Παραγωγή υποψηφίων (7 κύρια, 3 euro)
     prediction_results = predictor.predict_candidate_set(primary_count=7, euro_count=3)
     
     # Υπολογισμός επόμενης πιθανής ημερομηνίας κλήρωσης (Τρίτη ή Παρασκευή)
     current_date = datetime.strptime(latest_draw["draw_date"], "%Y-%m-%d")
-    # Απλή προσέγγιση προσθήκης 3-4 ημερών για την επόμενη κλήρωση
     next_draw_date = (current_date + timedelta(days=3 if current_date.weekday() == 1 else 4)).strftime("%Y-%m-%d")
 
     # Προετοιμασία για εισαγωγή στον πίνακα predictions της βάσης σας

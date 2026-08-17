@@ -1,0 +1,41 @@
+name: Lottery Auto Pilot Engine
+
+on:
+  schedule:
+    # Εκτέλεση κάθε Τρίτη και Παρασκευή στις 20:30 UTC (22:30 ώρα Ελλάδος)
+    - cron: '30 20 * * 2,5'
+  workflow_dispatch: # Σας επιτρέπει να το τρέχετε και χειροκίνητα με ένα κουμπί στο GitHub
+
+jobs:
+  run-analytics:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # Δίνει δικαίωμα στο bot να κάνει commit το ημερολόγιο
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Run Auto Predictor Core
+      env:
+        PYTHONPATH: .
+      run: python src/auto_runner.py
+
+    - name: Commit and Push Changes
+      run: |
+        git config --local user.email "github-actions[bot]@://github.com"
+        git config --local user.name "GitHub Actions Bot"
+        git add exports/predictions_history.md exports/next_eurojackpot_prediction.json
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: Draw results, log history & next prediction" && git push)

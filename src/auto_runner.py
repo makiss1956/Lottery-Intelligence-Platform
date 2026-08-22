@@ -2,7 +2,7 @@ import os
 import json
 import requests
 from datetime import datetime, timedelta
-from src.database.manager import DBManager
+from src.database.db_manager import DBManager
 from src.analytics.frequency_analyzer import FrequencyAnalyzer
 from src.analytics.predictor import ProbabilityPredictor
 

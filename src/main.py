@@ -32,7 +32,9 @@ def run_pipeline():
         else:
             logger.info("Draw %s already exists in database.", latest["draw_date"])
 
-        
+        # 🔮 Validate previous prediction against this new draw
+        db.validate_latest_prediction(latest)
+
     else:
         logger.warning("Could not fetch latest draw. Using existing database data.")
 

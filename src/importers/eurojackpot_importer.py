@@ -28,7 +28,13 @@ class EurojackpotImporter:
                 logger.warning("CSV is empty")
                 return None
             
-            last = rows[-1]
+            # Ταξινόμηση με βάση την ημερομηνία για να βρούμε την πιο πρόσφατη
+            valid_rows = [r for r in rows if r.get("Date", "").strip() not in ("", "YYYY-MM-DD")]
+            if not valid_rows:
+                logger.warning("No valid date rows in CSV")
+                return None
+            last = max(valid_rows, key=lambda r: r.get("Date", ""))
+            
             date_str = last.get("Date", "").strip()
             primary = []
             euro = []
@@ -80,6 +86,9 @@ class EurojackpotImporter:
             count = 0
             for row in rows:
                 date_str = row.get("Date", "").strip()
+                if date_str in ("", "YYYY-MM-DD"):
+                    continue
+                
                 primary = []
                 euro = []
                 
@@ -111,19 +120,21 @@ class EurojackpotImporter:
             logger.error("CSV sync failed: %s", e)
 
     def get_next_draw_date(self):
-        """Next Eurojackpot draw: Tuesday or Friday."""
+        """Next Eurojackpot draw: Tuesday (1) or Friday (4)."""
         today = datetime.now()
         weekday = today.weekday()
         hour = today.hour
 
-        if weekday == 1 and hour < 22:
+        # Eurojackpot draw is at ~19:00 UTC.
+        # If today is draw day and it's before 20:00 UTC, next draw is today.
+        if weekday == 1 and hour < 20:
             return today.strftime("%Y-%m-%d")
-        elif weekday == 4 and hour < 22:
+        if weekday == 4 and hour < 20:
             return today.strftime("%Y-%m-%d")
 
-        days_ahead = 1
-        while True:
+        # Otherwise, find the next Tuesday or Friday
+        for days_ahead in range(1, 8):
             next_day = today + timedelta(days=days_ahead)
             if next_day.weekday() in (1, 4):
                 return next_day.strftime("%Y-%m-%d")
-            days_ahead += 1
+        return (today + timedelta(days=3)).strftime("%Y-%m-%d")  # fallback

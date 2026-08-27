@@ -3,9 +3,11 @@ name: Eurojackpot Automated Pipeline
 on:
   schedule:
     # Τρίτη & Παρασκευή 21:00 UTC = 00:00 Ελλάδας (με θερινή ώρα)
-    # Η κλήρωση γίνεται ~19:00 UTC, οπότε 21:00 είναι ασφαλές
     - cron: '0 21 * * 2,5'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run-pipeline:
@@ -17,16 +19,16 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Full Pipeline
+      - name: Run Full Pipeline & Evaluate Predictions
         run: python src/main.py
         env:
           PYTHONPATH: ${{ github.workspace }}
@@ -39,10 +41,17 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
 
-      - name: Upload Reports & Database
+      - name: Commit and Push Updated Data & Reports
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ reports/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: New draw data & evaluation reports [skip ci]" && git push)
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lottery-reports
+          name: lottery-reports-and-db
           path: |
             reports/
             data/

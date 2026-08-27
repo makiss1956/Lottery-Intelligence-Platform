@@ -16,11 +16,11 @@ def run_pipeline():
     db = DBManager()
     importer = EurojackpotImporter(db_manager=db)
 
-    # 1. Συγχρονισμός ιστορικού (μόνο αν η βάση είναι άδεια)
+    # 1. Συγχρονισμός ιστορικού
     logger.info("1. Syncing draw history...")
     importer.sync_history()
 
-    # 2. Φέρνουμε την πιο πρόσφατη κλήρωση
+    # 2. Ανάκτηση και αποθήκευση της τελευταίας κλήρωσης
     logger.info("2. Fetching latest draw...")
     latest = importer.fetch_latest_draw()
 
@@ -29,15 +29,14 @@ def run_pipeline():
         if inserted:
             logger.info("New draw saved: %s | Primary: %s | Euro: %s",
                         latest["draw_date"], latest["primary_numbers"], latest["euro_numbers"])
+            # 🔮 Αξιολόγηση της προηγούμενης πρόβλεψης ΜΟΝΟ αν μπήκε νέα κλήρωση
+            db.validate_latest_prediction(latest)
         else:
             logger.info("Draw %s already exists in database.", latest["draw_date"])
-
-        # 🔮 Validate previous prediction against this new draw
-        db.validate_latest_prediction(latest)
-
     else:
         logger.warning("Could not fetch latest draw. Using existing database data.")
 
+    # 3. Έλεγχος διαθεσιμότητας δεδομένων
     all_draws = db.get_all_draws()
     if not all_draws:
         logger.error("CRITICAL: Database is empty. Cannot generate predictions.")
@@ -49,7 +48,7 @@ def run_pipeline():
                 latest_draw["primary_numbers"],
                 latest_draw["euro_numbers"])
 
-    # 4. Ανάλυση & Πρόβλεψη
+    # 4. Αναλύσεις & Παραγωγή Πρόβλεψης
     logger.info("4. Generating prediction for next draw...")
     freq_analyzer = FrequencyAnalyzer(db)
     pattern_analyzer = PatternAnalyzer(db)
@@ -65,7 +64,7 @@ def run_pipeline():
 
     next_draw_date = importer.get_next_draw_date()
 
-    # Αποθήκευση πρόβλεψης
+    # Αποθήκευση πρόβλεψης στη βάση
     db.insert_prediction({
         "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "for_draw_date": next_draw_date,
@@ -77,7 +76,7 @@ def run_pipeline():
     logger.info("Saved prediction for %s: Primary %s | Euro %s",
                 next_draw_date, primary_cands, euro_cands)
 
-    # 5. Email
+    # 5. Αποστολή Email
     logger.info("5. Sending email notification...")
     try:
         from src.notifications.email_sender import LotteryEmailSender
@@ -93,7 +92,7 @@ def run_pipeline():
     except Exception as e:
         logger.warning("Email failed: %s", e)
 
-    # 6. Dashboard
+    # 6. Δημιουργία Dashboard Report
     logger.info("6. Generating dashboard...")
     try:
         from src.analytics.dashboard import SuccessDashboard

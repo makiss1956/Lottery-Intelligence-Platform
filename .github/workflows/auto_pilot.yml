@@ -37,12 +37,12 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "GitHub Actions Bot"
         
-        # Προσθέτουμε ολόκληρους τους φακέλους αντί για συγκεκριμένα αρχεία
+        # ✅ Προσθέτουμε ολόκληρους φακέλους (ασφαλές ακόμα κι αν λείπουν αρχεία)
         git add exports/
         git add data/
         git add reports/
         
-        # Έλεγχος αν υπάρχουν αλλαγές — commit μόνο αν υπάρχουν
+        # ✅ Commit ΜΟΝΟ αν υπάρχουν πραγματικές αλλαγές — χωρίς σφάλματα!
         git diff --quiet && git diff --staged --quiet || (
           git commit -m "Auto-update: Draw results, log history & next prediction" && git push
         )

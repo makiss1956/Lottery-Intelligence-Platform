@@ -1,18 +1,15 @@
 name: Lottery Auto Pilot Engine
-
 on:
   schedule:
     # Εκτέλεση κάθε Τρίτη και Παρασκευή στις 20:30 UTC (22:30 ώρα Ελλάδος)
     - cron: '30 20 * * 2,5'
-  workflow_dispatch: # Σας επιτρέπει να το τρέχετε και χειροκίνητα με ένα κουμπί στο GitHub
+  workflow_dispatch: # Επιτρέπει χειροκίνητη εκτέλεση με κουμπί στο GitHub
 
 jobs:
   run-analytics:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write # Δίνει δικαίωμα στο bot να κάνει commit το ημερολόγιο
-
+      contents: write # Δίνει δικαίωμα για commit & push
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -39,5 +36,13 @@ jobs:
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "GitHub Actions Bot"
-        git add exports/predictions_history.md exports/next_eurojackpot_prediction.json data/lottery.db
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: Draw results, log history & next prediction" && git push)
+        
+        # Προσθέτουμε ολόκληρους τους φακέλους αντί για συγκεκριμένα αρχεία
+        git add exports/
+        git add data/
+        git add reports/
+        
+        # Έλεγχος αν υπάρχουν αλλαγές — commit μόνο αν υπάρχουν
+        git diff --quiet && git diff --staged --quiet || (
+          git commit -m "Auto-update: Draw results, log history & next prediction" && git push
+        )

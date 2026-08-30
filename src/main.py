@@ -126,9 +126,6 @@ def run_pipeline() -> None:
             inserted_count += 1
         else:
             logger.info("Draw %s already exists in database.", latest["draw_date"])
-        
-        # 🔮 Αξιολόγηση της προηγούμενης πρόβλεψης ΠΑΝΤΑ (όχι μόνο αν μπήκε νέα)
-        db.validate_latest_prediction(latest)
     else:
         logger.warning("Could not fetch latest draw. Using existing database data.")
 

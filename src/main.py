@@ -4,9 +4,11 @@ Pipeline:
 1. Synchronize CSV history with database.
 2. Detect whether a new draw was added (via CSV or scraper fallback).
 3. Validate the prediction assigned to that draw.
-4. Generate exactly one prediction for the next draw.
-5. Send exactly one email for the new prediction.
-6. Generate dashboard.
+4. Determine next draw date.
+5. Generate predictions using multiple methods (Hybrid Ensemble).
+6. Save prediction.
+7. Send email for the new prediction.
+8. Generate dashboard.
 """
 import sys
 import os
@@ -54,7 +56,7 @@ def send_prediction_email(prediction_data, stats):
 💶 Προτεινόμενοι αριθμοί Euro (3):
 {', '.join(map(str, prediction_data['euro_candidates']))}
 
-📊 Μέθοδος: {prediction_data.get('method', 'composite_freq_delay')}
+📊 Μέθοδος: {prediction_data.get('method', 'hybrid_ensemble')}
 
 📈 Στατιστικά:
 - Σύνολο κληρώσεων: {stats['total_draws']}
@@ -182,16 +184,66 @@ def run_pipeline() -> None:
         return
 
     # -------------------------------------------------
-    # STEP 5 — Δημιουργία νέας πρόβλεψης
+    # STEP 5 — Αναλύσεις & Παραγωγή Πρόβλεψης (Multi-Method Hybrid)
     # -------------------------------------------------
-    logger.info("STEP 5: Δημιουργία πρόβλεψης...")
+    logger.info("STEP 5: Generating predictions using multiple methods...")
+
     freq_analyzer = FrequencyAnalyzer(db)
     pattern_analyzer = PatternAnalyzer(db)
-    predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
 
-    prediction = predictor.predict_candidate_set(primary_count=7, euro_count=3)
-    primary_candidates = prediction.get("primary_candidates", [])
-    euro_candidates = prediction.get("euro_candidates", [])
+    # Method A: Original Composite Predictor
+    predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
+    pred_original = predictor.predict_candidate_set(primary_count=7, euro_count=3)
+
+    # Method B: Seeded RNG
+    from src.analytics.seeded_rng import SeededRNGGenerator
+    rng = SeededRNGGenerator(seed_source="stats")
+    rng.set_seed_from_stats(freq_analyzer.get_primary_frequencies())
+    rng_primary = rng.generate_weighted(
+        freq_analyzer.get_primary_frequencies(), 
+        count=7, total_pool=50
+    )
+    rng_euro = rng.generate_weighted(
+        freq_analyzer.get_euro_frequencies(),
+        count=3, total_pool=12
+    )
+
+    # Method C: Temperature Mix
+    from src.analytics.temperature_analyzer import TemperatureAnalyzer
+    temp = TemperatureAnalyzer(db)
+    temp_result = temp.get_mixed_candidates(hot_ratio=0.4, warm_ratio=0.4, cold_ratio=0.2)
+
+    # Method D: Monte Carlo
+    from src.analytics.monte_carlo import MonteCarloSimulator
+    mc = MonteCarloSimulator(freq_analyzer, simulations=5000)
+    mc_result = mc.run_simulation()
+
+    # Combine all methods (hybrid approach)
+    all_primary = (
+        pred_original["primary_candidates"][:3] +
+        rng_primary[:2] +
+        temp_result.get("primary_candidates", [])[:2]
+    )
+    # Remove duplicates while preserving order
+    seen = set()
+    primary_candidates = []
+    for n in all_primary:
+        if n not in seen:
+            primary_candidates.append(n)
+            seen.add(n)
+    primary_candidates = sorted(primary_candidates[:7])
+
+    # Euro: use original + RNG
+    all_euro = pred_original["euro_candidates"][:2] + rng_euro[:1]
+    seen_euro = set()
+    euro_candidates = []
+    for n in all_euro:
+        if n not in seen_euro:
+            euro_candidates.append(n)
+            seen_euro.add(n)
+    euro_candidates = sorted(euro_candidates[:3])
+
+    logger.info("Hybrid prediction generated | Primary: %s | Euro: %s", primary_candidates, euro_candidates)
 
     if len(primary_candidates) != 7:
         logger.error("Ο υπολογιστής δεν επέστρεψε ακριβώς 7 αριθμούς.")
@@ -199,10 +251,6 @@ def run_pipeline() -> None:
     if len(euro_candidates) != 3:
         logger.error("Ο υπολογιστής δεν επέστρεψε ακριβώς 3 αριθμούς Euro.")
         sys.exit(1)
-
-    logger.info("✅ Πρόβλεψη δημιουργήθηκε:")
-    logger.info("   Κύριοι (7): %s", primary_candidates)
-    logger.info("   Euro (3):   %s", euro_candidates)
 
     # -------------------------------------------------
     # STEP 6 — Αποθήκευση πρόβλεψης
@@ -212,8 +260,8 @@ def run_pipeline() -> None:
         "for_draw_date": next_draw_date,
         "predicted_primary": primary_candidates,
         "predicted_euro": euro_candidates,
-        "method": prediction.get("method", "composite_freq_delay"),
-        "confidence": prediction.get("confidence", {}),
+        "method": "hybrid_ensemble",
+        "confidence": pred_original.get("confidence", {}),
     }
 
     prediction_saved = db.insert_prediction(prediction_record)
@@ -233,8 +281,8 @@ def run_pipeline() -> None:
         "prediction_for_date": next_draw_date,
         "primary_candidates": primary_candidates,
         "euro_candidates": euro_candidates,
-        "method": prediction.get("method", "composite_freq_delay"),
-        "confidence": prediction.get("confidence", {}),
+        "method": "hybrid_ensemble",
+        "confidence": pred_original.get("confidence", {}),
     }
 
     stats = {

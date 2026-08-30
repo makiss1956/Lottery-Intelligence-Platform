@@ -2,7 +2,7 @@
 Main Execution Pipeline for Lottery Intelligence Platform.
 Pipeline:
 1. Synchronize CSV history with database.
-2. Detect whether a new draw was added.
+2. Detect whether a new draw was added (via CSV or scraper fallback).
 3. Validate the prediction assigned to that draw.
 4. Generate exactly one prediction for the next draw.
 5. Send exactly one email for the new prediction.
@@ -108,10 +108,30 @@ def run_pipeline() -> None:
     # -------------------------------------------------
     logger.info("STEP 1: Συγχρονισμός ιστορικού...")
     inserted_count = importer.sync_history()
-    logger.info("Εισήχθησαν %d νέες κληρώσεις.", inserted_count)
+    logger.info("Εισήχθησαν %d νέες κληρώσεις από CSV.", inserted_count)
 
     # -------------------------------------------------
-    # STEP 2 — Έλεγχος δεδομένων
+    # STEP 2 — Ανάκτηση και αποθήκευση της τελευταίας κλήρωσης
+    # -------------------------------------------------
+    logger.info("STEP 2: Fetching latest draw...")
+    latest = importer.fetch_latest_draw()
+
+    if latest:
+        inserted = db.insert_draw(latest)
+        if inserted:
+            logger.info("New draw saved: %s | Primary: %s | Euro: %s",
+                        latest["draw_date"], latest["primary_numbers"], latest["euro_numbers"])
+            inserted_count += 1
+        else:
+            logger.info("Draw %s already exists in database.", latest["draw_date"])
+        
+        # 🔮 Αξιολόγηση της προηγούμενης πρόβλεψης ΠΑΝΤΑ (όχι μόνο αν μπήκε νέα)
+        db.validate_latest_prediction(latest)
+    else:
+        logger.warning("Could not fetch latest draw. Using existing database data.")
+
+    # -------------------------------------------------
+    # Έλεγχος αν υπάρχουν κληρώσεις στη βάση
     # -------------------------------------------------
     all_draws = db.get_all_draws()
     if not all_draws:
@@ -119,29 +139,11 @@ def run_pipeline() -> None:
         sys.exit(1)
 
     latest_draw = all_draws[0]
-    logger.info(
-        "Τελευταία κλήρωση: %s | Κύριοι=%s | Euro=%s",
-        latest_draw["draw_date"],
-        latest_draw["primary_numbers"],
-        latest_draw["euro_numbers"],
-    )
 
     # -------------------------------------------------
-    # ✅ Αν δεν υπάρχει νέα κλήρωση — ΣΤΑΜΑΤΑ
-    # Αποφυγή διπλών αποστολών email & διπλών προβλέψεων
+    # STEP 3 — Έλεγχος προηγούμενης πρόβλεψης για το logging/email
     # -------------------------------------------------
-    if inserted_count == 0:
-        logger.info("➡️ Δεν βρέθηκε νέα κλήρωση.")
-        logger.info("➡️ Δεν απαιτείται επικύρωση.")
-        logger.info("➡️ Δεν δημιουργείται νέα πρόβλεψη.")
-        logger.info("➡️ Δεν αποστέλλεται email.")
-        logger.info("✅ Η διαδικασία ολοκληρώθηκε χωρίς ενέργειες.")
-        return
-
-    # -------------------------------------------------
-    # STEP 3 — Έλεγχος προηγούμενης πρόβλεψης
-    # -------------------------------------------------
-    logger.info("STEP 2: Έλεγχος προηγούμενης πρόβλεψης...")
+    logger.info("STEP 3: Έλεγχος προηγούμενης πρόβλεψης...")
     validation_result = db.validate_prediction_for_draw(latest_draw)
 
     if validation_result:
@@ -168,7 +170,7 @@ def run_pipeline() -> None:
     # STEP 4 — Ημερομηνία επόμενης κλήρωσης
     # -------------------------------------------------
     next_draw_date = importer.get_next_draw_date()
-    logger.info("STEP 3: Ημερομηνία επόμενης κλήρωσης = %s", next_draw_date)
+    logger.info("STEP 4: Ημερομηνία επόμενης κλήρωσης = %s", next_draw_date)
 
     # -------------------------------------------------
     # ✅ Αποφυγή διπλής πρόβλεψης
@@ -182,7 +184,7 @@ def run_pipeline() -> None:
     # -------------------------------------------------
     # STEP 5 — Δημιουργία νέας πρόβλεψης
     # -------------------------------------------------
-    logger.info("STEP 4: Δημιουργία πρόβλεψης...")
+    logger.info("STEP 5: Δημιουργία πρόβλεψης...")
     freq_analyzer = FrequencyAnalyzer(db)
     pattern_analyzer = PatternAnalyzer(db)
     predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
@@ -225,7 +227,7 @@ def run_pipeline() -> None:
     # -------------------------------------------------
     # STEP 7 — Αποστολή EMAIL
     # -------------------------------------------------
-    logger.info("STEP 5: Αποστολή email...")
+    logger.info("STEP 7: Αποστολή email...")
 
     prediction_data = {
         "prediction_for_date": next_draw_date,
@@ -246,7 +248,7 @@ def run_pipeline() -> None:
     # -------------------------------------------------
     # STEP 8 — Δημιουργία Αναφοράς/Dashboard
     # -------------------------------------------------
-    logger.info("STEP 6: Δημιουργία αναφοράς...")
+    logger.info("STEP 8: Δημιουργία αναφοράς...")
     try:
         from src.analytics.dashboard import SuccessDashboard
         dashboard = SuccessDashboard(db)
@@ -262,7 +264,7 @@ def run_pipeline() -> None:
     logger.info("✅ Η ΔΙΑΔΙΚΑΣΙΑ ΟΛΟΚΛΗΡΩΘΗΚΕ")
     logger.info("Νέες κληρώσεις:   %d", inserted_count)
     logger.info("Έλεγχος προηγούμενης: %s", "✅" if validation_result else "❌")
-    logger.info("Νέα πρόβλεψη:       ✅ Δημιουργήθηκε")
+    logger.info("Νέα πρόβλεψη:        ✅ Δημιουργήθηκε")
     logger.info("==================================================")
 
 

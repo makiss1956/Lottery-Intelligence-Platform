@@ -230,8 +230,8 @@ def run_pipeline() -> None:
             seen.add(n)
     primary_candidates = sorted(primary_candidates[:7])
 
-    # Euro: use original + RNG
-    all_euro = pred_original["euro_candidates"][:2] + rng_euro[:1]
+    # Euro: use original + RNG — take more to survive deduplication
+    all_euro = pred_original["euro_candidates"][:3] + rng_euro[:3]
     seen_euro = set()
     euro_candidates = []
     for n in all_euro:

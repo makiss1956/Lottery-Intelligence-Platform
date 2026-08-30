@@ -29,11 +29,17 @@ class EurojackpotImporter:
             base_dir / "data" / "eurojackpot_raw_history.csv"
         )
 
-    def fetch_latest_draw(
-        self,
-    ) -> Optional[Dict[str, Any]]:
-        """Return the latest valid draw from CSV."""
-        return self._fetch_from_csv()
+    def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
+        """Read the latest draw from CSV, fallback to web scraper."""
+        result = self._fetch_from_csv()
+        if result:
+            return result
+
+        # Fallback: try web scraper
+        logger.info("CSV empty or outdated. Trying web scraper...")
+        from src.importers.web_scraper import EurojackpotWebScraper
+        scraper = EurojackpotWebScraper()
+        return scraper.fetch_latest_draw()
 
     def _read_csv_rows(self) -> List[Dict[str, str]]:
         """Read all CSV rows."""

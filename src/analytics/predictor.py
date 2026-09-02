@@ -1,8 +1,10 @@
 """Probability Prediction Engine with Composite Scoring."""
 from typing import Any, Dict, List
+import random
 from src.core.logger import get_logger
 
 logger = get_logger("Predictor")
+
 
 class ProbabilityPredictor:
     """
@@ -24,7 +26,6 @@ class ProbabilityPredictor:
         # --- Primary Numbers Scoring ---
         primary_freqs = self.freq_analyzer.get_primary_frequencies()
         primary_delays, _ = self.freq_analyzer.calculate_delays()
-
         primary_scores = self._compute_scores(primary_freqs, primary_delays, 1, 50)
         # Sort by score DESC (most probable first)
         sorted_primary = sorted(primary_scores.items(), key=lambda x: x[1], reverse=True)
@@ -32,7 +33,6 @@ class ProbabilityPredictor:
         # --- Euro Numbers Scoring ---
         euro_freqs = self.freq_analyzer.get_euro_frequencies()
         _, euro_delays = self.freq_analyzer.calculate_delays()
-
         euro_scores = self._compute_scores(euro_freqs, euro_delays, 1, 12)
         sorted_euro = sorted(euro_scores.items(), key=lambda x: x[1], reverse=True)
 
@@ -47,10 +47,48 @@ class ProbabilityPredictor:
                 [num for num, _ in sorted_primary[primary_count:primary_count+10]]
             )
 
-        primary_conf = {n: round(primary_scores[n], 4) for n in primary_candidates}
-        euro_conf = {n: round(euro_scores[n], 4) for n in euro_candidates}
+        # ==============================================
+        # === ΔΙΟΡΘΩΣΗ: Διασφάλιση σωστού αριθμού ===
+        # ==============================================
+
+        # Διασφάλιση ακριβώς 7 μοναδικών κύριων αριθμών
+        primary_candidates = sorted(list(set(primary_candidates)))
+        while len(primary_candidates) < primary_count:
+            # Βρίσκουμε αριθμούς που λείπουν (1-50)
+            missing = [n for n in range(1, 51) if n not in primary_candidates]
+            if missing:
+                # Προσθέτουμε τον αριθμό με την υψηλότερη βαθμολογία που λείπει
+                for num, _ in sorted_primary:
+                    if num in missing:
+                        primary_candidates.append(num)
+                        break
+        primary_candidates = sorted(primary_candidates[:primary_count])
+
+        # Διασφάλιση ακριβώς 3 μοναδικών Ευρώ αριθμών
+        euro_candidates = sorted(list(set(euro_candidates)))
+        while len(euro_candidates) < euro_count:
+            missing = [n for n in range(1, 13) if n not in euro_candidates]
+            if missing:
+                for num, _ in sorted_euro:
+                    if num in missing:
+                        euro_candidates.append(num)
+                        break
+        euro_candidates = sorted(euro_candidates[:euro_count])
+
+        # Έλεγχος — Πρέπει πλέον να είναι σωστά
+        if len(primary_candidates) != primary_count:
+            logger.error(f"ΚΡΙΣΙΜΟ ΣΦΑΛΜΑ: Βρέθηκαν {len(primary_candidates)} αντί για {primary_count} κύριοι αριθμοί!")
+        if len(euro_candidates) != euro_count:
+            logger.error(f"ΚΡΙΣΙΜΟ ΣΦΑΛΜΑ: Βρέθηκαν {len(euro_candidates)} αντί για {euro_count} Ευρώ αριθμοί!")
 
         logger.info("Generated %s primary and %s euro candidates.", len(primary_candidates), len(euro_candidates))
+
+        # ==============================================
+        # === ΤΕΛΟΣ ΔΙΟΡΘΩΣΗΣ ===
+        # ==============================================
+
+        primary_conf = {n: round(primary_scores[n], 4) for n in primary_candidates}
+        euro_conf = {n: round(euro_scores[n], 4) for n in euro_candidates}
 
         return {
             "primary_candidates": primary_candidates,
@@ -80,7 +118,6 @@ class ProbabilityPredictor:
             norm_delay = (delays.get(num, 0) - min_delay) / delay_range
             score = (self.frequency_weight * norm_freq) - (self.delay_weight * norm_delay)
             scores[num] = score
-
         return scores
 
     def _optimize_candidates(self, candidates: List[int], extended_pool: List[int]) -> List[int]:

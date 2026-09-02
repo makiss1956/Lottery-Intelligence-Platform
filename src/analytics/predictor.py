@@ -46,18 +46,17 @@ class ProbabilityPredictor:
             )
 
         # ==============================================
-        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ 7 + 3 αριθμοί ===
+        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ 7 + 3 αριθμοί ΜΕΤΑ τη βελτιστοποίηση ===
         # ==============================================
-        # Διασφάλιση ακριβώς 7 μοναδικών κύριων αριθμών
         primary_candidates = sorted(list(set(primary_candidates)))
         while len(primary_candidates) < primary_count:
             for num, _ in sorted_primary:
                 if num not in primary_candidates:
                     primary_candidates.append(num)
+                    logger.info(f"✅ Συμπληρώθηκε ο αριθμός: {num}")
                     break
         primary_candidates = sorted(primary_candidates[:primary_count])
 
-        # Διασφάλιση ακριβώς 3 μοναδικών Ευρώ αριθμών
         euro_candidates = sorted(list(set(euro_candidates)))
         while len(euro_candidates) < euro_count:
             for num, _ in sorted_euro:
@@ -67,7 +66,7 @@ class ProbabilityPredictor:
         euro_candidates = sorted(euro_candidates[:euro_count])
         # ==============================================
 
-        logger.info("Generated %s primary and %s euro candidates.", len(primary_candidates), len(euro_candidates))
+        logger.info("✅ Generated %s primary and %s euro candidates.", len(primary_candidates), len(euro_candidates))
 
         primary_conf = {n: round(primary_scores[n], 4) for n in primary_candidates}
         euro_conf = {n: round(euro_scores[n], 4) for n in euro_candidates}
@@ -106,7 +105,6 @@ class ProbabilityPredictor:
         if not candidates or not extended_pool:
             return candidates
 
-        # Remove duplicates while preserving order
         candidates = list(dict.fromkeys(candidates))
 
         odd = sum(1 for n in candidates if n % 2 != 0)

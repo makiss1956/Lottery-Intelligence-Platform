@@ -46,24 +46,39 @@ class ProbabilityPredictor:
             )
 
         # ==============================================
-        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ 7 + 3 αριθμοί ΜΕΤΑ τη βελτιστοποίηση ===
+        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ ΑΚΡΙΒΩΣ 7 + 3 αριθμοί ===
         # ==============================================
-        primary_candidates = sorted(list(set(primary_candidates)))
-        while len(primary_candidates) < primary_count:
-            for num, _ in sorted_primary:
-                if num not in primary_candidates:
-                    primary_candidates.append(num)
-                    logger.info(f"✅ Συμπληρώθηκε ο αριθμός: {num}")
-                    break
-        primary_candidates = sorted(primary_candidates[:primary_count])
+        # Αφαίρεση διπλότυπων διατηρώντας την σειρά
+        clean_primary = []
+        for num in primary_candidates:
+            if num not in clean_primary:
+                clean_primary.append(num)
 
-        euro_candidates = sorted(list(set(euro_candidates)))
-        while len(euro_candidates) < euro_count:
+        # Συμπλήρωση αν λείπουν αριθμοί
+        if len(clean_primary) < primary_count:
+            for num, _ in sorted_primary:
+                if num not in clean_primary:
+                    clean_primary.append(num)
+                    logger.info("✅ Συμπληρώθηκε ο κύριος αριθμός: %s", num)
+                    if len(clean_primary) == primary_count:
+                        break
+
+        primary_candidates = sorted(clean_primary[:primary_count])
+
+        clean_euro = []
+        for num in euro_candidates:
+            if num not in clean_euro:
+                clean_euro.append(num)
+
+        if len(clean_euro) < euro_count:
             for num, _ in sorted_euro:
-                if num not in euro_candidates:
-                    euro_candidates.append(num)
-                    break
-        euro_candidates = sorted(euro_candidates[:euro_count])
+                if num not in clean_euro:
+                    clean_euro.append(num)
+                    logger.info("✅ Συμπληρώθηκε ο αριθμός Euro: %s", num)
+                    if len(clean_euro) == euro_count:
+                        break
+
+        euro_candidates = sorted(clean_euro[:euro_count])
         # ==============================================
 
         logger.info("✅ Generated %s primary and %s euro candidates.", len(primary_candidates), len(euro_candidates))
@@ -105,6 +120,7 @@ class ProbabilityPredictor:
         if not candidates or not extended_pool:
             return candidates
 
+        # Διατήρηση μοναδικών τιμών
         candidates = list(dict.fromkeys(candidates))
 
         odd = sum(1 for n in candidates if n % 2 != 0)

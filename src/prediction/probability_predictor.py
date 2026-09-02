@@ -1,131 +1,148 @@
-"""
-Probability Predictor Module
----------------------------
-Calculates draw probabilities for candidate number sets based on 
-historical frequency analysis and statistical metrics.
-"""
+"""Probability Prediction Engine with Composite Scoring."""
+from typing import Any, Dict, List
+from src.core.logger import get_logger
 
-import logging
-from typing import Dict, List, Tuple, Any, Optional, Set
-
-logger = logging.getLogger(__name__)
+logger = get_logger("Predictor")
 
 
 class ProbabilityPredictor:
-    """Predictor that utilizes statistical frequency analysis to score and rank candidate sets."""
+    """
+    Composite scoring predictor.
+    Score = (frequency_weight * normalized_frequency) - (delay_weight * normalized_delay)
+    Hot numbers (high freq, low delay) -> high score
+    Cold numbers (low freq, high delay) -> low/negative score -> rejected
+    """
 
-    def __init__(self, freq_analyzer: Any):
-        """
-        Initialize the predictor with a FrequencyAnalyzer instance.
+    def __init__(self, frequency_analyzer, pattern_analyzer=None,
+                 frequency_weight: float = 0.7,
+                 delay_weight: float = 0.3):
+        self.freq_analyzer = frequency_analyzer
+        self.pattern_analyzer = pattern_analyzer
+        self.frequency_weight = frequency_weight
+        self.delay_weight = delay_weight
 
-        :param freq_analyzer: An instance of FrequencyAnalyzer.
-        """
-        self.freq_analyzer = freq_analyzer
+    def predict_candidate_set(self, primary_count: int = 7, euro_count: int = 3) -> Dict[str, Any]:
+        # --- Primary Numbers Scoring ---
+        primary_freqs = self.freq_analyzer.get_primary_frequencies()
+        primary_delays, _ = self.freq_analyzer.calculate_delays()
+        primary_scores = self._compute_scores(primary_freqs, primary_delays, 1, 50)
+        sorted_primary = sorted(primary_scores.items(), key=lambda x: x[1], reverse=True)
 
-    def rebalance_candidates(
-        self, 
-        candidates: List[int], 
-        frequencies: Dict[int, int], 
-        replacement_pool: List[int]
-    ) -> List[int]:
-        """
-        Safely rebalances a list of candidate numbers by removing the element 
-        with the lowest frequency score and introducing a replacement.
+        # --- Euro Numbers Scoring ---
+        euro_freqs = self.freq_analyzer.get_euro_frequencies()
+        _, euro_delays = self.freq_analyzer.calculate_delays()
+        euro_scores = self._compute_scores(euro_freqs, euro_delays, 1, 12)
+        sorted_euro = sorted(euro_scores.items(), key=lambda x: x[1], reverse=True)
 
-        :param candidates: Current list of candidate numbers.
-        :param frequencies: Dictionary mapping numbers to their historical frequencies.
-        :param replacement_pool: Pool of eligible numbers for replacement.
-        :return: Rebalanced list of candidate numbers sorted in ascending order.
-        """
-        if not candidates:
-            return []
+        # --- Select top candidates ---
+        primary_candidates = [num for num, score in sorted_primary[:primary_count]]
+        euro_candidates = [num for num, score in sorted_euro[:euro_count]]
 
-        # 1. Ταξινόμηση υποψηφίων βάσει συχνότητας (αύξουσα σειρά: πρώτο το στοιχείο με τη μικρότερη συχνότητα)
-        sorted_by_freq = sorted(candidates, key=lambda num: frequencies.get(num, 0))
+        # --- Pattern optimization ---
+        if self.pattern_analyzer:
+            primary_candidates = self._optimize_candidates(
+                primary_candidates,
+                [num for num, _ in sorted_primary[primary_count:]]
+            )
 
-        # 2. Αφαίρεση του αριθμού με τη χαμηλότερη συχνότητα
-        lowest_freq_num = sorted_by_freq.pop(0)
-        remaining_candidates = set(sorted_by_freq)
+        # ==============================================
+        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ ΑΚΡΙΒΩΣ 7 + 3 ΑΡΙΘΜΟΙ ===
+        # ==============================================
+        # Καθαρισμός διπλότυπων διατηρώντας τη σειρά
+        clean_primary = []
+        for n in primary_candidates:
+            if n not in clean_primary:
+                clean_primary.append(n)
 
-        # 3. Εύρεση κατάλληλου αντικαταστάτη που δεν υπάρχει ήδη στους υποψηφίους
-        replacement = None
-        for num in replacement_pool:
-            if num not in remaining_candidates and num != lowest_freq_num:
-                replacement = num
-                break
+        # Αν μετά την βελτιστοποίηση λείπουν αριθμοί, συμπληρώνονται από τους υποψήφιους
+        if len(clean_primary) < primary_count:
+            for num, _ in sorted_primary:
+                if num not in clean_primary:
+                    clean_primary.append(num)
+                    if len(clean_primary) == primary_count:
+                        break
 
-        if replacement is not None:
-            remaining_candidates.add(replacement)
-            logger.debug("Rebalanced: Removed %d (freq: %d), Added %d", 
-                         lowest_freq_num, frequencies.get(lowest_freq_num, 0), replacement)
-        else:
-            remaining_candidates.add(lowest_freq_num)  # Fallback αν δεν βρεθεί αντικαταστάτης
+        primary_candidates = sorted(clean_primary[:primary_count])
 
-        # 4. Επιστροφή ταξινομημένης λίστας κατά αύξουσα αριθμητική σειρά για το τελικό output
-        return sorted(list(remaining_candidates))
+        clean_euro = []
+        for n in euro_candidates:
+            if n not in clean_euro:
+                clean_euro.append(n)
 
-    def predict_candidate_set(
-        self, 
-        primary_numbers: Optional[List[int]] = None, 
-        euro_numbers: Optional[List[int]] = None
-    ) -> Dict[str, Any]:
-        """
-        Calculates score and probability metrics for a set of candidate numbers.
+        if len(clean_euro) < euro_count:
+            for num, _ in sorted_euro:
+                if num not in clean_euro:
+                    clean_euro.append(num)
+                    if len(clean_euro) == euro_count:
+                        break
 
-        :param primary_numbers: List of primary numbers chosen for candidate evaluation.
-        :param euro_numbers: List of euro numbers chosen for candidate evaluation.
-        :return: Dictionary containing statistical scores and calculated weights.
-        """
-        try:
-            primary_freqs = self.freq_analyzer.calculate_number_frequencies()
-            euro_freqs = self.freq_analyzer.calculate_euro_frequencies()
-        except AttributeError as e:
-            logger.error("Error invoking frequency calculation methods on FrequencyAnalyzer: %s", e)
-            raise AttributeError(
-                "FrequencyAnalyzer does not implement 'calculate_number_frequencies' "
-                "or 'calculate_euro_frequencies'."
-            ) from e
+        euro_candidates = sorted(clean_euro[:euro_count])
+        # ==============================================
 
-        # Υπολογισμός σκορ για τους κύριους αριθμούς
-        primary_score = 0.0
-        if primary_numbers and isinstance(primary_freqs, dict):
-            total_primary_draws = sum(primary_freqs.values()) if primary_freqs else 1
-            for num in primary_numbers:
-                count = primary_freqs.get(num, 0)
-                primary_score += count / total_primary_draws if total_primary_draws > 0 else 0.0
+        logger.info("✅ Generated %s primary and %s euro candidates.", len(primary_candidates), len(euro_candidates))
 
-        # Υπολογισμός σκορ για τους αριθμούς Euro / Bonus
-        euro_score = 0.0
-        if euro_numbers and isinstance(euro_freqs, dict):
-            total_euro_draws = sum(euro_freqs.values()) if euro_freqs else 1
-            for num in euro_numbers:
-                count = euro_freqs.get(num, 0)
-                euro_score += count / total_euro_draws if total_euro_draws > 0 else 0.0
-
-        total_score = primary_score + euro_score
+        primary_conf = {n: round(primary_scores[n], 4) for n in primary_candidates}
+        euro_conf = {n: round(euro_scores[n], 4) for n in euro_candidates}
 
         return {
-            "primary_numbers": primary_numbers or [],
-            "euro_numbers": euro_numbers or [],
-            "primary_score": round(primary_score, 5),
-            "euro_score": round(euro_score, 5),
-            "total_score": round(total_score, 5),
-            "status": "success"
+            "primary_candidates": primary_candidates,
+            "euro_candidates": euro_candidates,
+            "method": "composite_freq_delay",
+            "confidence": {
+                "primary": primary_conf,
+                "euro": euro_conf
+            },
+            "primary_scores": {n: round(s, 4) for n, s in sorted_primary[:primary_count]},
+            "euro_scores": {n: round(s, 4) for n, s in sorted_euro[:euro_count]}
         }
 
-    def rank_candidates(self, candidate_list: List[Dict[str, List[int]]]) -> List[Dict[str, Any]]:
-        """
-        Ranks a list of candidate sets based on their calculated total probability score.
+    def _compute_scores(self, freqs: Dict[int, int], delays: Dict[int, int],
+                        min_num: int, max_num: int) -> Dict[int, float]:
+        max_freq = max(freqs.values()) if freqs else 1
+        min_freq = min(freqs.values()) if freqs else 0
+        freq_range = max_freq - min_freq if max_freq != min_freq else 1
 
-        :param candidate_list: List of dicts, e.g., [{"primary": [1, 2, 3, 4, 5], "euro": [1, 2]}]
-        :return: Sorted list of evaluated candidate sets in descending order of score.
-        """
-        results = []
-        for candidate in candidate_list:
-            primaries = candidate.get("primary", [])
-            euros = candidate.get("euro", [])
-            evaluation = self.predict_candidate_set(primary_numbers=primaries, euro_numbers=euros)
-            results.append(evaluation)
+        max_delay = max(delays.values()) if delays else 1
+        min_delay = min(delays.values()) if delays else 0
+        delay_range = max_delay - min_delay if max_delay != min_delay else 1
 
-        results.sort(key=lambda x: x.get("total_score", 0.0), reverse=True)
-        return results
+        scores = {}
+        for num in range(min_num, max_num + 1):
+            norm_freq = (freqs.get(num, 0) - min_freq) / freq_range
+            norm_delay = (delays.get(num, 0) - min_delay) / delay_range
+            score = (self.frequency_weight * norm_freq) - (self.delay_weight * norm_delay)
+            scores[num] = score
+        return scores
+
+    def _optimize_candidates(self, candidates: List[int], extended_pool: List[int]) -> List[int]:
+        if not candidates or not extended_pool:
+            return candidates
+
+        # Διατήρηση μοναδικών τιμών
+        candidates = list(dict.fromkeys(candidates))
+
+        odd = sum(1 for n in candidates if n % 2 != 0)
+        even = len(candidates) - odd
+
+        if odd == 0 or even == 0:
+            target_odd = (odd == 0)
+            replacement = next((n for n in extended_pool if (n % 2 != 0) == target_odd and n not in candidates), None)
+            if replacement is not None:
+                removed = candidates.pop()
+                candidates.append(replacement)
+                logger.info("Rebalanced odd/even: replaced %s with %s.", removed, replacement)
+
+        current_sum = sum(candidates)
+        if current_sum < 90 or current_sum > 160:
+            for i, num in enumerate(candidates):
+                for repl in extended_pool:
+                    # Αποφυγή αντικατάστασης με αριθμό που υπάρχει ήδη στους candidates
+                    if repl in candidates:
+                        continue
+                    new_sum = current_sum - num + repl
+                    if 90 <= new_sum <= 160:
+                        candidates[i] = repl
+                        logger.info("Sum rebalanced: %s -> %s (sum now %s)", num, repl, new_sum)
+                        return candidates
+
+        return candidates

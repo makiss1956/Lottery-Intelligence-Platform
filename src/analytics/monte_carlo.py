@@ -1,7 +1,16 @@
 """Monte Carlo Simulation Engine for Eurojackpot."""
 import random
-from typing import Dict, List, Tuple
+import sys
+from pathlib import Path
+from typing import Dict, List
 from collections import Counter
+
+# Path setup
+if __name__ == "__main__":
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
 from src.core.logger import get_logger
 
 logger = get_logger("MonteCarlo")
@@ -26,6 +35,12 @@ class MonteCarloSimulator:
         primary_total = sum(primary_freqs.values())
         euro_total = sum(euro_freqs.values())
         
+        # ✅ ΔΙΟΡΘΩΣΗ: Αποφυγή division by zero
+        if primary_total == 0:
+            primary_total = 1
+        if euro_total == 0:
+            euro_total = 1
+        
         primary_probs = {k: v / primary_total for k, v in primary_freqs.items()}
         euro_probs = {k: v / euro_total for k, v in euro_freqs.items()}
         
@@ -36,7 +51,6 @@ class MonteCarloSimulator:
         logger.info("Running %d Monte Carlo simulations...", self.simulations)
         
         for _ in range(self.simulations):
-            # Weighted random draw
             primary = self._weighted_sample(
                 list(range(1, 51)), 
                 [primary_probs.get(i, 0.001) for i in range(1, 51)], 
@@ -87,7 +101,14 @@ class MonteCarloSimulator:
                 break
             total = sum(temp_weights)
             if total == 0:
-                break
+                # ✅ Fallback: uniform random
+                if temp_pop:
+                    choice = self.rng.choice(temp_pop)
+                    idx = temp_pop.index(choice)
+                    selected.append(choice)
+                    temp_pop.pop(idx)
+                    temp_weights.pop(idx)
+                continue
             probs = [w / total for w in temp_weights]
             choice = self.rng.choices(temp_pop, weights=probs, k=1)[0]
             idx = temp_pop.index(choice)

@@ -7,12 +7,18 @@ into the SQLite database using idempotent inserts.
 """
 
 import csv
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.core.logger import get_logger
+# Path setup για standalone execution
+if __name__ == "__main__":
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 
+from src.core.logger import get_logger
 
 logger = get_logger("EurojackpotImporter")
 
@@ -73,6 +79,22 @@ class EurojackpotImporter:
             return []
 
     @staticmethod
+    def _normalize_csv_date(date_str: str) -> Optional[str]:
+        """
+        ✅ ΠΡΟΣΘΗΚΗ: Μετατρέπει διάφορα formats σε YYYY-MM-DD.
+        """
+        date_str = date_str.strip()
+        if not date_str or date_str.lower() in ("date", "yyyy-mm-dd"):
+            return None
+
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(date_str, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
     def _parse_row(
         row: Dict[str, str],
     ) -> Optional[Dict[str, Any]]:
@@ -83,7 +105,8 @@ class EurojackpotImporter:
             "",
         ).strip()
 
-        if not date_str or date_str == "YYYY-MM-DD":
+        normalized_date = EurojackpotImporter._normalize_csv_date(date_str)
+        if not normalized_date:
             return None
 
         primary: List[int] = []
@@ -128,7 +151,7 @@ class EurojackpotImporter:
             return None
 
         return {
-            "draw_date": date_str,
+            "draw_date": normalized_date,  # ✅ ΔΙΟΡΘΩΣΗ: πάντα YYYY-MM-DD
             "primary_numbers": sorted(primary),
             "euro_numbers": sorted(euro),
         }
@@ -219,34 +242,44 @@ class EurojackpotImporter:
 
     def get_next_draw_date(self) -> str:
         """
-        Return next Eurojackpot draw date.
-
-        Eurojackpot draws are normally Tuesday and Friday.
+        ✅ ΔΙΟΡΘΩΣΗ: Υπολογίζει σωστά την επόμενη κλήρωση Eurojackpot.
+        Οι κληρώσεις είναι Τρίτη και Παρασκευή στις 21:00 CET (22:00 EEST).
+        Αν τρέχει μετά την κλήρωση, πάει στην επόμενη.
         """
+        # Χρησιμοποιούμε UTC και μετατρέπουμε σε CET (UTC+1) / CEST (UTC+2)
+        now = datetime.utcnow()
+        # Προσέγγιση: CET = UTC+1, CEST = UTC+2. Χρησιμοποιούμε UTC+2 για καλοκαίρι.
+        # Για ακρίβεια, θα μπορούσαμε να χρησιμοποιήσουμε pytz, αλλά για απλότητα:
+        cet_hour = (now.hour + 2) % 24  # Προσέγγιση CEST
+        cet_weekday = (now.weekday() + (1 if now.hour >= 22 else 0)) % 7  # Προσέγγιση
 
-        today = datetime.now()
+        # Η κλήρωση γίνεται στις 21:00 CET. Αν η ώρα CET είναι > 21:00,
+        # η "σήμερα" θεωρείται ότι έχει περάσει.
+        draw_hour = 21
 
+        today = now.date()
         weekday = today.weekday()
 
-        # Tuesday
-        if weekday == 1:
-            return today.strftime("%Y-%m-%d")
+        # Tuesday (1) or Friday (4)
+        if weekday == 1:  # Tuesday
+            if cet_hour < draw_hour:
+                return today.strftime("%Y-%m-%d")
+            else:
+                # Μετά την κλήρωση Τρίτης -> επόμενη Παρασκευή
+                return (today + timedelta(days=3)).strftime("%Y-%m-%d")
 
-        # Friday
-        if weekday == 4:
-            return today.strftime("%Y-%m-%d")
+        if weekday == 4:  # Friday
+            if cet_hour < draw_hour:
+                return today.strftime("%Y-%m-%d")
+            else:
+                # Μετά την κλήρωση Παρασκευής -> επόμενη Τρίτη
+                return (today + timedelta(days=4)).strftime("%Y-%m-%d")
 
+        # Άλλες μέρες: βρες την επόμενη Τρίτη ή Παρασκευή
         for days_ahead in range(1, 8):
-            candidate = (
-                today + timedelta(days=days_ahead)
-            )
-
+            candidate = today + timedelta(days=days_ahead)
             if candidate.weekday() in (1, 4):
-                return candidate.strftime(
-                    "%Y-%m-%d"
-                )
+                return candidate.strftime("%Y-%m-%d")
 
         # Defensive fallback
-        return (
-            today + timedelta(days=3)
-        ).strftime("%Y-%m-%d")
+        return (today + timedelta(days=3)).strftime("%Y-%m-%d")

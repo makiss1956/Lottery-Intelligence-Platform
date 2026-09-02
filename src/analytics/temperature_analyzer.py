@@ -1,5 +1,14 @@
 """Hot-Cold-Warm number classification."""
+import sys
+from pathlib import Path
 from typing import Dict, List
+
+# Path setup
+if __name__ == "__main__":
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
 from src.core.logger import get_logger
 
 logger = get_logger("TemperatureAnalyzer")
@@ -111,9 +120,22 @@ class TemperatureAnalyzer:
         candidates.extend(p_warm[:n_warm])
         candidates.extend(p_cold[:n_cold])
         
+        # ✅ ΔΙΟΡΘΩΣΗ: Αν δεν έχουμε αρκετούς σε κάποια κατηγορία, συμπλήρωσε από warm
+        if len(candidates) < total:
+            needed = total - len(candidates)
+            remaining = [n for n in p_warm if n not in candidates]
+            candidates.extend(remaining[:needed])
+            logger.warning("Temperature fallback: filled %d from warm pool", needed)
+        
         # For euro numbers: mostly hot
         euro = classification["euro"]
         euro_candidates = euro["hot"][:2] + euro["warm"][:1]
+        
+        # ✅ ΔΙΟΡΘΩΣΗ: Συμπλήρωση αν λείπουν euro
+        if len(euro_candidates) < 3:
+            needed = 3 - len(euro_candidates)
+            remaining = [n for n in euro["warm"] if n not in euro_candidates]
+            euro_candidates.extend(remaining[:needed])
         
         return {
             "primary_candidates": sorted(candidates[:total]),

@@ -1,8 +1,17 @@
 """Seeded Random Number Generator for Eurojackpot."""
 import random
 import hashlib
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict
+
+# Path setup
+if __name__ == "__main__":
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
 from src.core.logger import get_logger
 
 logger = get_logger("SeededRNG")
@@ -14,10 +23,6 @@ class SeededRNGGenerator:
     """
     
     def __init__(self, seed_source: str = "auto"):
-        """
-        seed_source: "auto" (draw date), "stats" (hash of frequencies), 
-                     or any custom string
-        """
         self.seed_source = seed_source
         self.rng = random.Random()
     
@@ -62,21 +67,42 @@ class SeededRNGGenerator:
                           count: int = 5, 
                           total_pool: int = 50) -> List[int]:
         """
-        Weighted random selection. Numbers with higher weights 
-        have higher probability of selection.
+        ✅ ΔΙΟΡΘΩΣΗ: Weighted random selection με εγγύηση count αριθμών.
         """
         numbers = list(range(1, total_pool + 1))
         probs = [weights.get(n, 0.01) for n in numbers]
         total_prob = sum(probs)
-        normalized = [p / total_prob for p in probs]
+        if total_prob == 0:
+            # Αν όλα τα weights είναι 0, χρησιμοποίησε uniform
+            normalized = [1.0 / len(numbers)] * len(numbers)
+        else:
+            normalized = [p / total_prob for p in probs]
         
-        selected = self.rng.choices(numbers, weights=normalized, k=count * 3)
-        # Remove duplicates and take top count
-        unique = []
-        for n in selected:
-            if n not in unique:
-                unique.append(n)
-            if len(unique) == count:
+        # Χρησιμοποίησε sample αντί για choices για να αποφύγεις duplicates
+        # Αν τα weights είναι πολύ skewed, το choices μπορεί να δώσει πολλά duplicates
+        # Χρησιμοποιούμε weighted sample without replacement
+        selected = []
+        temp_numbers = list(numbers)
+        temp_weights = list(normalized)
+        
+        for _ in range(count):
+            if not temp_numbers:
                 break
+            total_w = sum(temp_weights)
+            if total_w == 0:
+                break
+            # Επίλεξε έναν αριθμό
+            choice = self.rng.choices(temp_numbers, weights=temp_weights, k=1)[0]
+            idx = temp_numbers.index(choice)
+            selected.append(choice)
+            temp_numbers.pop(idx)
+            temp_weights.pop(idx)
         
-        return sorted(unique[:count])
+        # ✅ Fallback: αν δεν βρήκαμε αρκετούς, συμπλήρωσε με random από τα υπόλοιπα
+        if len(selected) < count:
+            remaining = [n for n in numbers if n not in selected]
+            needed = count - len(selected)
+            selected.extend(self.rng.sample(remaining, min(needed, len(remaining))))
+            logger.warning("RNG weighted fallback used: added %d random numbers", needed)
+        
+        return sorted(selected[:count])

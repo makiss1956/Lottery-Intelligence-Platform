@@ -2,7 +2,7 @@
 Main Execution Pipeline for Lottery Intelligence Platform.
 Pipeline:
 1. Synchronize CSV history with database.
-2. Detect whether a new draw was added (via CSV or scraper fallback).
+2. Detect whether a new draw was added.
 3. Validate the prediction assigned to that draw.
 4. Determine next draw date.
 5. Generate predictions using multiple methods (Hybrid Ensemble).
@@ -16,6 +16,12 @@ import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from pathlib import Path
+
+# ✅ ΔΙΟΡΘΩΣΗ: Path setup για να τρέχει σωστά ως script
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from src.core.logger import get_logger
 from src.database.db_manager import DBManager
@@ -37,13 +43,11 @@ def send_prediction_email(prediction_data, stats):
         logger.warning("⚠️ Λείπουν οι ρυθμίσεις email — το μήνυμα δεν θα σταλεί.")
         return False
 
-    # Δημιουργία μηνύματος
     msg = MIMEMultipart("alternative")
     msg["From"] = email_user
     msg["To"] = email_to
     msg["Subject"] = f"🎯 Πρόβλεψη Eurojackpot — {prediction_data['prediction_for_date']}"
 
-    # Σώμα μηνύματος
     body = f"""
 Αυτόματο μήνυμα από το Lottery Intelligence Platform
 ======================================================
@@ -64,7 +68,6 @@ def send_prediction_email(prediction_data, stats):
 
 """
 
-    # Προσθήκη αποτελεσμάτων προηγούμενης πρόβλεψης αν υπάρχουν
     val = stats.get("validation")
     if val:
         body += f"""
@@ -79,7 +82,6 @@ def send_prediction_email(prediction_data, stats):
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
     try:
-        # Αποστολή μέσω SMTP (Gmail — άλλαξε αν χρησιμοποιείς άλλη υπηρεσία)
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(email_user, email_pass)
             server.send_message(msg)
@@ -90,17 +92,33 @@ def send_prediction_email(prediction_data, stats):
         return False
 
 
+def _ensure_count(candidates, sorted_pool, target_count):
+    """
+    ✅ ΒΟΗΘΗΤΙΚΗ: Εξασφαλίζει ότι έχουμε ακριβώς target_count μοναδικούς αριθμούς.
+    Συμπληρώνει από το sorted_pool αν λείπουν.
+    """
+    seen = set()
+    result = []
+    for n in candidates:
+        if n not in seen:
+            result.append(n)
+            seen.add(n)
+    # Συμπλήρωση αν λείπουν
+    for num, _ in sorted_pool:
+        if num not in seen:
+            result.append(num)
+            seen.add(num)
+            logger.info("✅ Συμπληρώθηκε ο αριθμός: %s", num)
+            if len(result) == target_count:
+                break
+    return sorted(result[:target_count])
+
+
 def run_pipeline() -> None:
     """Execute the complete lottery intelligence pipeline."""
-    logger.info(
-        "=================================================="
-    )
-    logger.info(
-        "STARTING LOTTERY INTELLIGENCE PIPELINE"
-    )
-    logger.info(
-        "=================================================="
-    )
+    logger.info("=" * 50)
+    logger.info("STARTING LOTTERY INTELLIGENCE PIPELINE")
+    logger.info("=" * 50)
 
     db = DBManager()
     importer = EurojackpotImporter(db_manager=db)
@@ -140,13 +158,13 @@ def run_pipeline() -> None:
     latest_draw = all_draws[0]
 
     # -------------------------------------------------
-    # STEP 3 — Έλεγχος προηγούμενης πρόβλεψης για το logging/email
+    # STEP 3 — Έλεγχος προηγούμενης πρόβλεψης
     # -------------------------------------------------
     logger.info("STEP 3: Έλεγχος προηγούμενης πρόβλεψης...")
     validation_result = db.validate_prediction_for_draw(latest_draw)
 
     if validation_result:
-        logger.info("==============================================")
+        logger.info("=" * 46)
         logger.info("📊 ΑΠΟΤΕΛΕΣΜΑΤΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΠΡΟΒΛΕΨΗΣ")
         logger.info("Κλήρωση: %s", latest_draw["draw_date"])
         logger.info("Προβλεφθέντες: %s", validation_result.get("predicted_primary"))
@@ -161,7 +179,7 @@ def run_pipeline() -> None:
                     validation_result["matched_euro_numbers"])
         logger.info("🎯 Στόχος ≥3: %s", "ΕΠΙΤΥΧΙΑ ✅" if validation_result["target_achieved"] else "ΑΠΩΛΕΙΑ ❌")
         logger.info("📈 Βαθμολογία: %.2f%%", validation_result["score_percentage"])
-        logger.info("==============================================")
+        logger.info("=" * 46)
     else:
         logger.warning("Δεν υπάρχει αποθηκευμένη πρόβλεψη για την κλήρωση %s.", latest_draw["draw_date"])
 
@@ -197,7 +215,7 @@ def run_pipeline() -> None:
     rng = SeededRNGGenerator(seed_source="stats")
     rng.set_seed_from_stats(freq_analyzer.get_primary_frequencies())
     rng_primary = rng.generate_weighted(
-        freq_analyzer.get_primary_frequencies(), 
+        freq_analyzer.get_primary_frequencies(),
         count=7, total_pool=50
     )
     rng_euro = rng.generate_weighted(
@@ -215,30 +233,35 @@ def run_pipeline() -> None:
     mc = MonteCarloSimulator(freq_analyzer, simulations=5000)
     mc_result = mc.run_simulation()
 
-    # Combine all methods (hybrid approach)
+    # ✅ ΔΙΟΡΘΩΣΗ: Combine all methods (hybrid approach) — συμπεριλαμβάνεται Monte Carlo
     all_primary = (
         pred_original["primary_candidates"][:3] +
         rng_primary[:2] +
-        temp_result.get("primary_candidates", [])[:2]
+        temp_result.get("primary_candidates", [])[:2] +
+        mc_result.get("primary_candidates", [])[:2]  # ✅ ΠΡΟΣΘΗΚΗ: Monte Carlo συνεισφέρει
     )
-    # Remove duplicates while preserving order
-    seen = set()
-    primary_candidates = []
-    for n in all_primary:
-        if n not in seen:
-            primary_candidates.append(n)
-            seen.add(n)
-    primary_candidates = sorted(primary_candidates[:7])
 
-    # Euro: use original + RNG — take more to survive deduplication
-    all_euro = pred_original["euro_candidates"][:3] + rng_euro[:3]
-    seen_euro = set()
-    euro_candidates = []
-    for n in all_euro:
-        if n not in seen_euro:
-            euro_candidates.append(n)
-            seen_euro.add(n)
-    euro_candidates = sorted(euro_candidates[:3])
+    # ✅ ΔΙΟΡΘΩΣΗ: Fallback — εξασφαλίζει ακριβώς 7 μοναδικούς
+    primary_candidates = _ensure_count(
+        all_primary,
+        sorted(pred_original.get("primary_scores", {}).items(), key=lambda x: x[1], reverse=True),
+        7
+    )
+
+    # Euro: use original + RNG + temperature + Monte Carlo
+    all_euro = (
+        pred_original["euro_candidates"][:2] +
+        rng_euro[:2] +
+        temp_result.get("euro_candidates", [])[:2] +
+        mc_result.get("euro_candidates", [])[:2]  # ✅ ΠΡΟΣΘΗΚΗ: Monte Carlo συνεισφέρει
+    )
+
+    # ✅ ΔΙΟΡΘΩΣΗ: Fallback — εξασφαλίζει ακριβώς 3 μοναδικούς
+    euro_candidates = _ensure_count(
+        all_euro,
+        sorted(pred_original.get("euro_scores", {}).items(), key=lambda x: x[1], reverse=True),
+        3
+    )
 
     logger.info("Hybrid prediction generated | Primary: %s | Euro: %s", primary_candidates, euro_candidates)
 
@@ -257,7 +280,7 @@ def run_pipeline() -> None:
         "for_draw_date": next_draw_date,
         "predicted_primary": primary_candidates,
         "predicted_euro": euro_candidates,
-        "method": "hybrid_ensemble",
+        "method": "hybrid_ensemble_v2",
         "confidence": pred_original.get("confidence", {}),
     }
 
@@ -278,7 +301,7 @@ def run_pipeline() -> None:
         "prediction_for_date": next_draw_date,
         "primary_candidates": primary_candidates,
         "euro_candidates": euro_candidates,
-        "method": "hybrid_ensemble",
+        "method": "hybrid_ensemble_v2",
         "confidence": pred_original.get("confidence", {}),
     }
 
@@ -305,12 +328,12 @@ def run_pipeline() -> None:
     # -------------------------------------------------
     # ΟΛΟΚΛΗΡΩΣΗ
     # -------------------------------------------------
-    logger.info("==================================================")
+    logger.info("=" * 50)
     logger.info("✅ Η ΔΙΑΔΙΚΑΣΙΑ ΟΛΟΚΛΗΡΩΘΗΚΕ")
     logger.info("Νέες κληρώσεις:   %d", inserted_count)
     logger.info("Έλεγχος προηγούμενης: %s", "✅" if validation_result else "❌")
     logger.info("Νέα πρόβλεψη:        ✅ Δημιουργήθηκε")
-    logger.info("==================================================")
+    logger.info("=" * 50)
 
 
 if __name__ == "__main__":

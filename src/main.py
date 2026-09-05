@@ -190,13 +190,18 @@ def run_pipeline() -> None:
     logger.info("STEP 4: Ημερομηνία επόμενης κλήρωσης = %s", next_draw_date)
 
     # -------------------------------------------------
-    # ✅ Αποφυγή διπλής πρόβλεψης
+    # ✅ Αποφυγή διπλής πρόβλεψης / Αυτο-ίαση
     # -------------------------------------------------
     if db.prediction_exists(next_draw_date):
-        logger.warning("Πρόβλεψη υπάρχει ήδη για %s.", next_draw_date)
-        logger.warning("Δεν θα δημιουργηθεί διπλή πρόβλεψη.")
-        logger.warning("Δεν θα σταλεί διπλό email.")
-        return
+        if inserted_count > 0:
+            # Η παλιά πρόβλεψη φτιάχτηκε με ελλιπή δεδομένα → αντικατάσταση
+            logger.warning("Μπήκαν %d νέες κληρώσεις — αντικατάσταση πρόβλεψης για %s.",
+                           inserted_count, next_draw_date)
+            db.execute("DELETE FROM predictions WHERE for_draw_date = ?",
+                       (next_draw_date,))
+        else:
+            logger.warning("Πρόβλεψη υπάρχει ήδη για %s. Τέλος.", next_draw_date)
+            return
 
     # -------------------------------------------------
     # STEP 5 — Αναλύσεις & Παραγωγή Πρόβλεψης (Multi-Method Hybrid)
@@ -326,14 +331,21 @@ def run_pipeline() -> None:
         logger.warning("⚠️ Η δημιουργία αναφοράς απέτυχε: %s", exc)
 
     # -------------------------------------------------
-    # ΟΛΟΚΛΗΡΩΣΗ
+    # ΟΛΟΚΛΗΡΩΣΗ & ΣΥΝΑΓΕΡΜΟΣ ΕΛΛΕΙΠΟΝΤΩΝ ΚΛΗΡΩΣΕΩΝ
     # -------------------------------------------------
     logger.info("=" * 50)
     logger.info("✅ Η ΔΙΑΔΙΚΑΣΙΑ ΟΛΟΚΛΗΡΩΘΗΚΕ")
-    logger.info("Νέες κληρώσεις:   %d", inserted_count)
+    logger.info("Νέες κληρώσεις:    %d", inserted_count)
     logger.info("Έλεγχος προηγούμενης: %s", "✅" if validation_result else "❌")
-    logger.info("Νέα πρόβλεψη:        ✅ Δημιουργήθηκε")
+    logger.info("Νέα πρόβλεψη:         ✅ Δημιουργήθηκε")
     logger.info("=" * 50)
+
+    run_now = datetime.utcnow()
+    last_date = datetime.strptime(latest_draw["draw_date"], "%Y-%m-%d").date()
+    grace = run_now.weekday() in (1, 4) and run_now.hour < 20  # μέρα κλήρωσης, πριν τη δημοσίευση
+    if not grace and (run_now.date() - last_date).days >= 4 and inserted_count == 0:
+        logger.error("⚠️ ΛΕΙΠΟΥΝ κληρώσεις! Τελευταία στη βάση: %s", last_date)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

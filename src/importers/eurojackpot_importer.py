@@ -199,7 +199,7 @@ class EurojackpotImporter:
         """
         Synchronize ALL valid CSV rows with database.
 
-        Existing draws are ignored.
+        Existing draws are checked and updated if mismatched.
         New draws are inserted.
 
         Returns:
@@ -228,6 +228,17 @@ class EurojackpotImporter:
 
             valid_count += 1
 
+            # ✅ ΔΙΟΡΘΩΣΗ: Έλεγχος & αντικατάσταση εσφαλμένων εγγραφών
+            existing = self.db_manager.get_draw(draw["draw_date"])
+            if existing and (existing["primary_numbers"] != draw["primary_numbers"]
+                             or existing["euro_numbers"] != draw["euro_numbers"]):
+                logger.warning("ΔΙΟΡΘΩΣΗ %s: CSV %s+%s ≠ DB %s+%s",
+                               draw["draw_date"], draw["primary_numbers"], draw["euro_numbers"],
+                               existing["primary_numbers"], existing["euro_numbers"])
+                self.db_manager.execute(
+                    "DELETE FROM eurojackpot_draws WHERE draw_date = ?",
+                    (draw["draw_date"],))
+
             if self.db_manager.insert_draw(draw):
                 inserted_count += 1
 
@@ -248,13 +259,7 @@ class EurojackpotImporter:
         """
         # Χρησιμοποιούμε UTC και μετατρέπουμε σε CET (UTC+1) / CEST (UTC+2)
         now = datetime.utcnow()
-        # Προσέγγιση: CET = UTC+1, CEST = UTC+2. Χρησιμοποιούμε UTC+2 για καλοκαίρι.
-        # Για ακρίβεια, θα μπορούσαμε να χρησιμοποιήσουμε pytz, αλλά για απλότητα:
         cet_hour = (now.hour + 2) % 24  # Προσέγγιση CEST
-        cet_weekday = (now.weekday() + (1 if now.hour >= 22 else 0)) % 7  # Προσέγγιση
-
-        # Η κλήρωση γίνεται στις 21:00 CET. Αν η ώρα CET είναι > 21:00,
-        # η "σήμερα" θεωρείται ότι έχει περάσει.
         draw_hour = 21
 
         today = now.date()

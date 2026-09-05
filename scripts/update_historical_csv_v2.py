@@ -10,7 +10,7 @@ import csv
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 # Path setup για standalone execution
 project_root = Path(__file__).resolve().parent.parent
@@ -25,7 +25,7 @@ logger = get_logger("UpdateHistoricalCSV")
 
 def get_target_years() -> List[int]:
     """
-    ✅ Περιορισμός στα 2 τελευταία έτη.
+    Περιορισμός στα 2 τελευταία έτη.
     Επιστρέφει [τρέχον_έτος - 1, τρέχον_έτος] (π.χ. [2025, 2026]).
     """
     current_year = datetime.now().year
@@ -88,7 +88,7 @@ def main():
                 existing_draws[draw_date] = row_dict
                 updated_count += 1
 
-    # Ταξινόμηση ανά ημερομηνία (φθίνουσα ή αύξουσα ανάλογα με τη δομή σου)
+    # Ταξινόμηση ανά ημερομηνία (φθίνουσα)
     sorted_dates = sorted(existing_draws.keys(), reverse=True)
 
     # Εγγραφή πίσω στο CSV

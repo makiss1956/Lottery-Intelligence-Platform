@@ -1,10 +1,10 @@
 name: Eurojackpot Automated Pipeline
 on:
   schedule:
-    # Τρίτη & Παρασκευή 21:00 UTC
-    # Θερινή ώρα: 21:00 UTC = 00:00 (μεσάνυχτα) Ελλάδας
-    # Χειμερινή ώρα: 21:00 UTC = 23:00 το βράδυ Ελλάδας
+    # Τρίτη & Παρασκευή 21:00 UTC (Κύρια εκτέλεση)
     - cron: '0 21 * * 2,5'
+    # Τετάρτη & Σάββατο 04:30 UTC (Catch-up run: 07:30 ώρα Ελλάδας)
+    - cron: '30 4 * * 3,6'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Update draw history from web
+        run: python scripts/update_historical_csv_v2.py
+        env:
+          PYTHONPATH: ${{ github.workspace }}
 
       - name: Run Full Pipeline & Evaluate Predictions
         run: python src/main.py

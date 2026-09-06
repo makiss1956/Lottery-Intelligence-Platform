@@ -1,10 +1,11 @@
 """
-Update Eurojackpot Historical CSV (Last 2 Years).
+Update Eurojackpot historical CSV.
 
-Fetches historical Eurojackpot draw results via web scraping,
-restricting the range to the last 2 years for fast execution,
-and updates data/eurojackpot_raw_history.csv.
+Fetches the previous and current year from the OPAP API
+and safely merges the results with the existing CSV.
 """
+
+from __future__ import annotations
 
 import csv
 import sys
@@ -12,102 +13,217 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-# Path setup για standalone execution
+
 project_root = Path(__file__).resolve().parent.parent
+
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
 
 from src.core.logger import get_logger
 from src.importers.web_scraper import EurojackpotWebScraper
 
+
 logger = get_logger("UpdateHistoricalCSV")
 
 
+CSV_FIELDS = [
+    "Date",
+    "N1",
+    "N2",
+    "N3",
+    "N4",
+    "N5",
+    "E1",
+    "E2",
+]
+
+
 def get_target_years() -> List[int]:
-    """
-    Περιορισμός στα 2 τελευταία έτη.
-    Επιστρέφει [τρέχον_έτος - 1, τρέχον_έτος] (π.χ. [2025, 2026]).
-    """
+    """Return current year and previous year."""
+
     current_year = datetime.now().year
-    return [current_year - 1, current_year]
+
+    return [
+        current_year - 1,
+        current_year,
+    ]
 
 
-def load_existing_csv(csv_path: Path) -> Dict[str, Dict[str, str]]:
-    """Load existing draws from CSV mapped by Date (YYYY-MM-DD)."""
-    existing_draws = {}
+def load_existing_csv(
+    csv_path: Path,
+) -> Dict[str, Dict[str, str]]:
+    """Load existing CSV records keyed by normalized date."""
+
+    existing_draws: Dict[str, Dict[str, str]] = {}
+
     if not csv_path.exists():
         return existing_draws
 
     try:
-        with csv_path.open("r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f, delimiter=";")
+        with csv_path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as file:
+
+            reader = csv.DictReader(
+                file,
+                delimiter=";",
+            )
+
             for row in reader:
-                date_val = row.get("Date", "").strip()
-                if date_val:
-                    existing_draws[date_val] = row
+                date_value = row.get(
+                    "Date",
+                    "",
+                ).strip()
+
+                if not date_value:
+                    continue
+
+                existing_draws[date_value] = {
+                    field: row.get(field, "").strip()
+                    for field in CSV_FIELDS
+                }
+
     except Exception as exc:
-        logger.error("Error reading existing CSV: %s", exc)
+        logger.error(
+            "Error reading existing CSV: %s",
+            exc,
+        )
 
     return existing_draws
 
 
-def main():
-    csv_path = project_root / "data" / "eurojackpot_raw_history.csv"
-    existing_draws = load_existing_csv(csv_path)
-    logger.info("Loaded %d existing draws from CSV.", len(existing_draws))
+def draw_to_csv_row(
+    draw: Dict,
+) -> Dict[str, str]:
+    """Convert normalized draw into CSV row."""
 
-    target_years = get_target_years()
-    logger.info("Scraping draws for years: %s", target_years)
+    primary = draw["primary_numbers"]
+    euro = draw["euro_numbers"]
 
-    scraper = EurojackpotWebScraper()
-    scraped_count = 0
-    updated_count = 0
+    return {
+        "Date": draw["draw_date"],
+        "N1": str(primary[0]),
+        "N2": str(primary[1]),
+        "N3": str(primary[2]),
+        "N4": str(primary[3]),
+        "N5": str(primary[4]),
+        "E1": str(euro[0]),
+        "E2": str(euro[1]),
+    }
 
-    for year in target_years:
-        logger.info("Fetching draws for year %d...", year)
-        year_draws = scraper.fetch_year_draws(year)
-        
-        for draw in year_draws:
-            scraped_count += 1
-            draw_date = draw["draw_date"]
-            
-            # Μορφοποίηση σε CSV row
-            row_dict = {
-                "Date": draw_date,
-                "N1": str(draw["primary_numbers"][0]),
-                "N2": str(draw["primary_numbers"][1]),
-                "N3": str(draw["primary_numbers"][2]),
-                "N4": str(draw["primary_numbers"][3]),
-                "N5": str(draw["primary_numbers"][4]),
-                "E1": str(draw["euro_numbers"][0]),
-                "E2": str(draw["euro_numbers"][1]),
-            }
 
-            # Ενημέρωση ή προσθήκη νέας εγγραφής
-            if draw_date not in existing_draws or existing_draws[draw_date] != row_dict:
-                existing_draws[draw_date] = row_dict
-                updated_count += 1
+def write_csv(
+    csv_path: Path,
+    draws: Dict[str, Dict[str, str]],
+) -> None:
+    """Write the complete merged CSV safely."""
 
-    # Ταξινόμηση ανά ημερομηνία (φθίνουσα)
-    sorted_dates = sorted(existing_draws.keys(), reverse=True)
+    csv_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    # Εγγραφή πίσω στο CSV
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["Date", "N1", "N2", "N3", "N4", "N5", "E1", "E2"]
+    temp_path = csv_path.with_suffix(".tmp")
 
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
+    sorted_dates = sorted(
+        draws.keys(),
+        reverse=True,
+    )
+
+    with temp_path.open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as file:
+
+        writer = csv.DictWriter(
+            file,
+            fieldnames=CSV_FIELDS,
+            delimiter=";",
+        )
+
         writer.writeheader()
-        for d in sorted_dates:
-            writer.writerow(existing_draws[d])
+
+        for draw_date in sorted_dates:
+            writer.writerow(draws[draw_date])
+
+    temp_path.replace(csv_path)
+
+
+def main() -> int:
+    """Update the historical CSV."""
+
+    csv_path = (
+        project_root
+        / "data"
+        / "eurojackpot_raw_history.csv"
+    )
+
+    existing_draws = load_existing_csv(
+        csv_path
+    )
 
     logger.info(
-        "Finished updating CSV | Total in CSV=%d | Scraped=%d | New/Updated=%d",
+        "Loaded %d existing draws.",
         len(existing_draws),
-        scraped_count,
+    )
+
+    scraper = EurojackpotWebScraper()
+
+    total_scraped = 0
+    updated_count = 0
+
+    for year in get_target_years():
+
+        logger.info(
+            "Fetching Eurojackpot draws for year %d...",
+            year,
+        )
+
+        year_draws = scraper.fetch_year_draws(
+            year
+        )
+
+        total_scraped += len(year_draws)
+
+        for draw in year_draws:
+
+            row = draw_to_csv_row(draw)
+
+            draw_date = draw["draw_date"]
+
+            if (
+                draw_date not in existing_draws
+                or existing_draws[draw_date] != row
+            ):
+                existing_draws[draw_date] = row
+                updated_count += 1
+
+    if total_scraped == 0:
+        logger.error(
+            "OPAP returned zero valid draws. "
+            "Existing CSV will NOT be modified."
+        )
+        return 1
+
+    write_csv(
+        csv_path,
+        existing_draws,
+    )
+
+    logger.info(
+        "CSV update completed | "
+        "Total=%d | Scraped=%d | New/Updated=%d",
+        len(existing_draws),
+        total_scraped,
         updated_count,
     )
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -62,13 +62,11 @@ class EurojackpotWebScraper:
 
     def fetch_year_draws(self, year: int) -> List[Dict[str, Any]]:
         """
-        Fetch all draws for a given year by making monthly chunks
-        to respect OPAP API date range limitations.
+        Fetch all draws for a given year by making monthly chunks.
         """
         all_draws: List[Dict[str, Any]] = []
 
         for month in range(1, 13):
-            # Αν πρόκειται για μελλοντικό μήνα του τρέχοντος έτους, σταματάμε
             now = datetime.now()
             if year == now.year and month > now.month:
                 break
@@ -77,7 +75,6 @@ class EurojackpotWebScraper:
             start_date = f"{year}-{month:02d}-01"
             end_date = f"{year}-{month:02d}-{last_day:02d}"
 
-            logger.info("  Fetching range %s to %s...", start_date, end_date)
             month_draws = self.fetch_draws_range(start_date, end_date)
             all_draws.extend(month_draws)
 
@@ -101,7 +98,11 @@ class EurojackpotWebScraper:
 
             winning = draw.get("winningNumbers", {})
             primary_numbers = sorted(winning.get("list", []))
-            euro_numbers = sorted(winning.get("bonus", []))
+            
+            # Στο Eurojackpot οι 2 αριθμοί Euro βρίσκονται στο 'sideClassWinningNumbers'
+            # ή εναλλακτικά στο 'sideClassNum' / 'bonus'
+            euro_numbers = winning.get("sideClassWinningNumbers") or winning.get("sideClassNum") or winning.get("bonus", [])
+            euro_numbers = sorted(euro_numbers)
 
             if len(primary_numbers) != 5 or len(euro_numbers) != 2:
                 logger.warning(

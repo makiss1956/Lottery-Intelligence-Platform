@@ -4,6 +4,7 @@ Web Scraper Module for Eurojackpot draws via OPAP API.
 
 from __future__ import annotations
 
+import calendar
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 class EurojackpotWebScraper:
     """Scraper to fetch historical Eurojackpot draw results from OPAP API."""
 
-    # ΣΩΣΤΟ GAME_ID για το Eurojackpot στον ΟΠΑΠ είναι το 5109 (Το 5104 είναι το Τζόκερ)
     GAME_ID = 5109
     BASE_URL = f"https://api.opap.gr/draws/v3.0/{GAME_ID}"
 
@@ -41,7 +41,6 @@ class EurojackpotWebScraper:
             response.raise_for_status()
             data = response.json()
 
-            # Αν επιστραφεί λίστα ή dict με 'content'
             if isinstance(data, dict):
                 raw_draws = data.get("content", [])
             elif isinstance(data, list):
@@ -63,11 +62,26 @@ class EurojackpotWebScraper:
 
     def fetch_year_draws(self, year: int) -> List[Dict[str, Any]]:
         """
-        Fetch all draws for a given year.
+        Fetch all draws for a given year by making monthly chunks
+        to respect OPAP API date range limitations.
         """
-        start_date = f"{year}-01-01"
-        end_date = f"{year}-12-31"
-        return self.fetch_draws_range(start_date, end_date)
+        all_draws: List[Dict[str, Any]] = []
+
+        for month in range(1, 13):
+            # Αν πρόκειται για μελλοντικό μήνα του τρέχοντος έτους, σταματάμε
+            now = datetime.now()
+            if year == now.year and month > now.month:
+                break
+
+            last_day = calendar.monthrange(year, month)[1]
+            start_date = f"{year}-{month:02d}-01"
+            end_date = f"{year}-{month:02d}-{last_day:02d}"
+
+            logger.info("  Fetching range %s to %s...", start_date, end_date)
+            month_draws = self.fetch_draws_range(start_date, end_date)
+            all_draws.extend(month_draws)
+
+        return all_draws
 
     def _parse_draw(self, draw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -78,7 +92,6 @@ class EurojackpotWebScraper:
             if not draw_time:
                 return None
 
-            # Μετατροπή timestamp/iso date σε YYYY-MM-DD
             if isinstance(draw_time, (int, float)):
                 dt = datetime.fromtimestamp(draw_time / 1000.0)
             else:
@@ -88,11 +101,8 @@ class EurojackpotWebScraper:
 
             winning = draw.get("winningNumbers", {})
             primary_numbers = sorted(winning.get("list", []))
-            
-            # Στο Eurojackpot οι 2 αριθμοί Euro επιστρέφονται στο 'bonus'
             euro_numbers = sorted(winning.get("bonus", []))
 
-            # Έλεγχος εγκυρότητας: 5 κύριοι αριθμοί (1-50) & 2 αριθμοί Euro (1-12)
             if len(primary_numbers) != 5 or len(euro_numbers) != 2:
                 logger.warning(
                     "Invalid numbers structure for draw %s: primary=%s, euro=%s",

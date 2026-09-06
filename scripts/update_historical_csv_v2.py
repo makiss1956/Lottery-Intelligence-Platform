@@ -13,18 +13,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-
 project_root = Path(__file__).resolve().parent.parent
 
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+try:
+    from src.core.logger import get_logger
+    logger = get_logger("UpdateHistoricalCSV")
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("UpdateHistoricalCSV")
 
-from src.core.logger import get_logger
 from src.importers.web_scraper import EurojackpotWebScraper
-
-
-logger = get_logger("UpdateHistoricalCSV")
 
 
 CSV_FIELDS = [
@@ -41,20 +43,15 @@ CSV_FIELDS = [
 
 def get_target_years() -> List[int]:
     """Return current year and previous year."""
-
     current_year = datetime.now().year
-
     return [
         current_year - 1,
         current_year,
     ]
 
 
-def load_existing_csv(
-    csv_path: Path,
-) -> Dict[str, Dict[str, str]]:
+def load_existing_csv(csv_path: Path) -> Dict[str, Dict[str, str]]:
     """Load existing CSV records keyed by normalized date."""
-
     existing_draws: Dict[str, Dict[str, str]] = {}
 
     if not csv_path.exists():
@@ -66,17 +63,13 @@ def load_existing_csv(
             encoding="utf-8",
             newline="",
         ) as file:
-
             reader = csv.DictReader(
                 file,
                 delimiter=";",
             )
 
             for row in reader:
-                date_value = row.get(
-                    "Date",
-                    "",
-                ).strip()
+                date_value = row.get("Date", "").strip()
 
                 if not date_value:
                     continue
@@ -87,19 +80,13 @@ def load_existing_csv(
                 }
 
     except Exception as exc:
-        logger.error(
-            "Error reading existing CSV: %s",
-            exc,
-        )
+        logger.error("Error reading existing CSV: %s", exc)
 
     return existing_draws
 
 
-def draw_to_csv_row(
-    draw: Dict,
-) -> Dict[str, str]:
+def draw_to_csv_row(draw: Dict) -> Dict[str, str]:
     """Convert normalized draw into CSV row."""
-
     primary = draw["primary_numbers"]
     euro = draw["euro_numbers"]
 
@@ -120,7 +107,6 @@ def write_csv(
     draws: Dict[str, Dict[str, str]],
 ) -> None:
     """Write the complete merged CSV safely."""
-
     csv_path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -138,7 +124,6 @@ def write_csv(
         encoding="utf-8",
         newline="",
     ) as file:
-
         writer = csv.DictWriter(
             file,
             fieldnames=CSV_FIELDS,
@@ -155,21 +140,15 @@ def write_csv(
 
 def main() -> int:
     """Update the historical CSV."""
-
     csv_path = (
         project_root
         / "data"
         / "eurojackpot_raw_history.csv"
     )
 
-    existing_draws = load_existing_csv(
-        csv_path
-    )
+    existing_draws = load_existing_csv(csv_path)
 
-    logger.info(
-        "Loaded %d existing draws.",
-        len(existing_draws),
-    )
+    logger.info("Loaded %d existing draws.", len(existing_draws))
 
     scraper = EurojackpotWebScraper()
 
@@ -177,22 +156,13 @@ def main() -> int:
     updated_count = 0
 
     for year in get_target_years():
+        logger.info("Fetching Eurojackpot draws for year %d...", year)
 
-        logger.info(
-            "Fetching Eurojackpot draws for year %d...",
-            year,
-        )
-
-        year_draws = scraper.fetch_year_draws(
-            year
-        )
-
+        year_draws = scraper.fetch_year_draws(year)
         total_scraped += len(year_draws)
 
         for draw in year_draws:
-
             row = draw_to_csv_row(draw)
-
             draw_date = draw["draw_date"]
 
             if (
@@ -209,14 +179,10 @@ def main() -> int:
         )
         return 1
 
-    write_csv(
-        csv_path,
-        existing_draws,
-    )
+    write_csv(csv_path, existing_draws)
 
     logger.info(
-        "CSV update completed | "
-        "Total=%d | Scraped=%d | New/Updated=%d",
+        "CSV update completed | Total=%d | Scraped=%d | New/Updated=%d",
         len(existing_draws),
         total_scraped,
         updated_count,

@@ -1,195 +1,198 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Update Eurojackpot historical CSV.
-
-Fetches the previous and current year from the OPAP API
-and safely merges the results with the existing CSV.
+Ενημέρωση Ιστορικών Δεδομένων Eurojackpot σε CSV
+Πηγή: Επίσημο αρχείο Eurojackpot + εναλλακτικές πηγές
 """
-
-from __future__ import annotations
 
 import csv
-import sys
+import json
+import logging
+import re
+import requests
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from bs4 import BeautifulSoup
 
-project_root = Path(__file__).resolve().parent.parent
+# ------------------ ΡΥΘΜΙΣΕΙΣ ------------------
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+CSV_PATH = DATA_DIR / "eurojackpot_history.csv"
 
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-try:
-    from src.core.logger import get_logger
-    logger = get_logger("UpdateHistoricalCSV")
-except ImportError:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("UpdateHistoricalCSV")
-
-from src.importers.web_scraper import EurojackpotWebScraper
-
-
-CSV_FIELDS = [
-    "Date",
-    "N1",
-    "N2",
-    "N3",
-    "N4",
-    "N5",
-    "E1",
-    "E2",
+# Πηγές δεδομένων (σε σειρά προτίμησης)
+SOURCES = [
+    {
+        "name": "Eurojackpot Official Archive",
+        "url": "https://eurojackpot.de/en/results/archive",
+        "type": "html"
+    },
+    {
+        "name": "Euro-Millions.com Archive",
+        "url": "https://www.euro-millions.com/eurojackpot/results",
+        "type": "html"
+    }
 ]
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "el-GR,el;q=0.9,en-GB;q=0.8,en;q=0.7"
+}
 
-def get_target_years() -> List[int]:
-    """Return current year and previous year."""
-    current_year = datetime.now().year
-    return [
-        current_year - 1,
-        current_year,
-    ]
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger("UpdateHistoricalCSV")
+# ------------------------------------------------
+
+def load_existing_draws():
+    """Φόρτωση ήδη αποθηκευμένων κληρώσεων από CSV."""
+    draws = {}
+    if CSV_PATH.exists():
+        with open(CSV_PATH, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                draws[row["draw_date"]] = {
+                    "date": row["draw_date"],
+                    "main": [int(x) for x in row["main_numbers"].split(",")],
+                    "extra": [int(x) for x in row["extra_numbers"].split(",")]
+                }
+        logger.info(f"Loaded {len(draws)} existing draws.")
+    else:
+        logger.info("No existing CSV found. Will create new.")
+    return draws
 
 
-def load_existing_csv(csv_path: Path) -> Dict[str, Dict[str, str]]:
-    """Load existing CSV records keyed by normalized date."""
-    existing_draws: Dict[str, Dict[str, str]] = {}
-
-    if not csv_path.exists():
-        return existing_draws
+def fetch_from_alternative_source(year):
+    """Λήψη δεδομένων από εναλλακτική πηγή."""
+    url = f"https://www.euro-millions.com/eurojackpot/results/{year}"
+    logger.info(f"Trying: {url}")
 
     try:
-        with csv_path.open(
-            "r",
-            encoding="utf-8",
-            newline="",
-        ) as file:
-            reader = csv.DictReader(
-                file,
-                delimiter=";",
-            )
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
 
-            for row in reader:
-                date_value = row.get("Date", "").strip()
+        draws_found = []
 
-                if not date_value:
+        # Αναζήτηση με ευέλικτους επιλογείς
+        result_blocks = soup.select(".results-listing__item, .draw-result, .result-item")
+        if not result_blocks:
+            result_blocks = soup.find_all("div", class_=re.compile(r"result|draw"))
+
+        for block in result_blocks:
+            try:
+                # Ημερομηνία
+                date_tag = block.find("a", href=re.compile(r"/results/")) or block.find("time") or block.find("strong")
+                if not date_tag:
                     continue
 
-                existing_draws[date_value] = {
-                    field: row.get(field, "").strip()
-                    for field in CSV_FIELDS
-                }
+                date_text = date_tag.get_text(strip=True)
+                # Μετατροπή σε μορφή YYYY-MM-DD
+                parsed = parse_date(date_text, year)
+                if not parsed:
+                    continue
 
-    except Exception as exc:
-        logger.error("Error reading existing CSV: %s", exc)
+                # Αριθμοί — αναζήτηση με ευέλικτο τρόπο
+                number_spans = block.select(".ball, .num, .number, .result-ball")
+                if len(number_spans) >= 7:
+                    numbers = [int(s.get_text(strip=True)) for s in number_spans[:7] if s.get_text(strip=True).isdigit()]
+                    if len(numbers) == 7:
+                        draws_found.append({
+                            "date": parsed,
+                            "main": numbers[:5],
+                            "extra": numbers[5:]
+                        })
+            except Exception as e:
+                logger.debug(f"Parse error in block: {e}")
+                continue
 
-    return existing_draws
+        logger.info(f"Found {len(draws_found)} draws for {year}")
+        return draws_found
+
+    except Exception as e:
+        logger.error(f"Failed to fetch {year}: {e}")
+        return []
 
 
-def draw_to_csv_row(draw: Dict) -> Dict[str, str]:
-    """Convert normalized draw into CSV row."""
-    primary = draw["primary_numbers"]
-    euro = draw["euro_numbers"]
+def parse_date(text, default_year):
+    """Μετατροπή κειμένου ημερομηνίας σε YYYY-MM-DD."""
+    text = re.sub(r"\s+", " ", text.strip())
+    patterns = [
+        r"(\d{1,2})\s+(\w+)\s+(\d{4})",
+        r"(\w+)\s+(\d{1,2}),?\s+(\d{4})",
+    ]
 
-    return {
-        "Date": draw["draw_date"],
-        "N1": str(primary[0]),
-        "N2": str(primary[1]),
-        "N3": str(primary[2]),
-        "N4": str(primary[3]),
-        "N5": str(primary[4]),
-        "E1": str(euro[0]),
-        "E2": str(euro[1]),
+    months = {
+        "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
+        "july":7,"august":8,"september":9,"october":10,"november":11,"december":12
     }
 
+    for pat in patterns:
+        m = re.search(pat, text, re.I)
+        if m:
+            a, b, c = m.groups()
+            try:
+                day = int(a) if a.isdigit() else int(b)
+                mon_name = b if not a.isdigit() else a
+                year = int(c) if c.isdigit() else default_year
+                mon = months.get(mon_name.lower(), 1)
+                return f"{year}-{mon:02d}-{day:02d}"
+            except:
+                continue
+    return None
 
-def write_csv(
-    csv_path: Path,
-    draws: Dict[str, Dict[str, str]],
-) -> None:
-    """Write the complete merged CSV safely."""
-    csv_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
 
-    temp_path = csv_path.with_suffix(".tmp")
+def save_csv(draws):
+    """Αποθήκευση όλων των κληρώσεων σε CSV."""
+    DATA_DIR.mkdir(exist_ok=True)
+    sorted_draws = sorted(draws.values(), key=lambda x: x["date"])
 
-    sorted_dates = sorted(
-        draws.keys(),
-        reverse=True,
-    )
-
-    with temp_path.open(
-        "w",
-        encoding="utf-8",
-        newline="",
-    ) as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=CSV_FIELDS,
-            delimiter=";",
-        )
-
+    with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["draw_date", "main_numbers", "extra_numbers"])
         writer.writeheader()
+        for d in sorted_draws:
+            writer.writerow({
+                "draw_date": d["date"],
+                "main_numbers": ",".join(map(str, d["main"])),
+                "extra_numbers": ",".join(map(str, d["extra"]))
+            })
 
-        for draw_date in sorted_dates:
-            writer.writerow(draws[draw_date])
-
-    temp_path.replace(csv_path)
+    logger.info(f"Saved {len(sorted_draws)} draws to {CSV_PATH}")
 
 
-def main() -> int:
-    """Update the historical CSV."""
-    csv_path = (
-        project_root
-        / "data"
-        / "eurojackpot_raw_history.csv"
-    )
+def main():
+    logger.info("=== Starting Update ===")
 
-    existing_draws = load_existing_csv(csv_path)
+    # Φόρτωση υπαρχόντων
+    all_draws = load_existing_draws()
 
-    logger.info("Loaded %d existing draws.", len(existing_draws))
+    # Εύρεση τελευταίας ημερομηνίας
+    last_year = 2025
+    if all_draws:
+        last_date = max(all_draws.keys())
+        last_year = int(last_date[:4])
 
-    scraper = EurojackpotWebScraper()
+    # Λήψη για το τρέχον έτος
+    current_year = datetime.now().year
+    new_count = 0
 
-    total_scraped = 0
-    updated_count = 0
+    for year in [2025, current_year]:
+        draws = fetch_from_alternative_source(year)
+        for d in draws:
+            if d["date"] not in all_draws:
+                all_draws[d["date"]] = d
+                new_count += 1
 
-    for year in get_target_years():
-        logger.info("Fetching Eurojackpot draws for year %d...", year)
-
-        year_draws = scraper.fetch_year_draws(year)
-        total_scraped += len(year_draws)
-
-        for draw in year_draws:
-            row = draw_to_csv_row(draw)
-            draw_date = draw["draw_date"]
-
-            if (
-                draw_date not in existing_draws
-                or existing_draws[draw_date] != row
-            ):
-                existing_draws[draw_date] = row
-                updated_count += 1
-
-    if total_scraped == 0:
-        logger.error(
-            "OPAP returned zero valid draws. "
-            "Existing CSV will NOT be modified."
-        )
+    if new_count == 0:
+        logger.warning("⚠️ No new draws found. CSV NOT modified.")
         return 1
 
-    write_csv(csv_path, existing_draws)
-
-    logger.info(
-        "CSV update completed | Total=%d | Scraped=%d | New/Updated=%d",
-        len(existing_draws),
-        total_scraped,
-        updated_count,
-    )
-
+    save_csv(all_draws)
+    logger.info(f"✅ Added {new_count} new draws. Total: {len(all_draws)}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    exit(main())

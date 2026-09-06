@@ -1,4 +1,3 @@
-```python
 """
 Eurojackpot Web Scraper.
 
@@ -19,12 +18,13 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-# Project root for standalone execution
+
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent.parent
 
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
 
 from src.core.logger import get_logger
 
@@ -37,9 +37,7 @@ class EurojackpotWebScraper:
 
     GAME_ID = 5104
 
-    BASE_URL = (
-        f"https://api.opap.gr/draws/v3.0/{GAME_ID}"
-    )
+    BASE_URL = f"https://api.opap.gr/draws/v3.0/{GAME_ID}"
 
     def __init__(self, timeout: int = 20) -> None:
         self.timeout = timeout
@@ -48,26 +46,15 @@ class EurojackpotWebScraper:
 
         self.session.headers.update(
             {
-                "User-Agent": (
-                    "Lottery-Intelligence-Platform/1.0"
-                ),
+                "User-Agent": "Lottery-Intelligence-Platform/1.0",
                 "Accept": "application/json",
             }
         )
 
-    # =========================================================
-    # LATEST DRAW
-    # =========================================================
-
     def fetch_latest_draw(
         self,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Fetch the latest completed Eurojackpot draw.
-
-        Returns:
-            A normalized draw dictionary or None.
-        """
+        """Fetch the latest completed Eurojackpot draw."""
 
         url = f"{self.BASE_URL}/last/20"
 
@@ -133,25 +120,11 @@ class EurojackpotWebScraper:
             )
             return None
 
-    # =========================================================
-    # HISTORICAL DRAWS
-    # =========================================================
-
     def fetch_year_draws(
         self,
         year: int,
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch all Eurojackpot draws for a year.
-
-        The API is queried in approximately one-month chunks.
-
-        Args:
-            year: Four digit year.
-
-        Returns:
-            List of normalized draw dictionaries.
-        """
+        """Fetch all Eurojackpot draws for a given year."""
 
         if year < 2012 or year > 2100:
             raise ValueError(
@@ -229,8 +202,7 @@ class EurojackpotWebScraper:
                     valid_in_chunk += 1
 
                 logger.info(
-                    "Fetched OPAP period %s -> %s | "
-                    "valid draws=%d",
+                    "Fetched OPAP period %s -> %s | valid draws=%d",
                     current_date.isoformat(),
                     chunk_end.isoformat(),
                     valid_in_chunk,
@@ -263,9 +235,7 @@ class EurojackpotWebScraper:
                     exc,
                 )
 
-            current_date = (
-                chunk_end + timedelta(days=1)
-            )
+            current_date = chunk_end + timedelta(days=1)
 
         result = sorted(
             draws_by_date.values(),
@@ -280,25 +250,13 @@ class EurojackpotWebScraper:
 
         return result
 
-    # =========================================================
-    # EXTRACT DRAW LIST
-    # =========================================================
-
     @staticmethod
     def _extract_draws(
         data: Any,
     ) -> List[Dict[str, Any]]:
-        """
-        Extract draw objects from OPAP responses.
-
-        OPAP can return:
-        - a list
-        - a paginated object containing content
-        - an object containing last/latest/draw
-        """
+        """Extract draw objects from OPAP responses."""
 
         if isinstance(data, list):
-
             return [
                 item
                 for item in data
@@ -311,7 +269,6 @@ class EurojackpotWebScraper:
         content = data.get("content")
 
         if isinstance(content, list):
-
             return [
                 item
                 for item in content
@@ -331,7 +288,6 @@ class EurojackpotWebScraper:
                 return [value]
 
             if isinstance(value, list):
-
                 return [
                     item
                     for item in value
@@ -340,23 +296,11 @@ class EurojackpotWebScraper:
 
         return []
 
-    # =========================================================
-    # PARSE DRAW
-    # =========================================================
-
     def _parse_draw(
         self,
         draw: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """
-        Parse one OPAP draw.
-
-        Correct OPAP structure:
-
-        winningNumbers:
-            list  -> 5 main numbers
-            bonus -> 2 Euro numbers
-        """
+        """Parse one OPAP draw."""
 
         try:
 
@@ -365,28 +309,15 @@ class EurojackpotWebScraper:
                 {},
             )
 
-            if not isinstance(
-                winning,
-                dict,
-            ):
-                logger.warning(
-                    "Missing winningNumbers."
-                )
+            if not isinstance(winning, dict):
                 return None
-
-            # -------------------------------------------------
-            # MAIN NUMBERS
-            # -------------------------------------------------
 
             primary_raw = winning.get(
                 "list",
                 [],
             )
 
-            if not isinstance(
-                primary_raw,
-                list,
-            ):
+            if not isinstance(primary_raw, list):
                 return None
 
             primary_numbers = [
@@ -394,29 +325,18 @@ class EurojackpotWebScraper:
                 for number in primary_raw
             ]
 
-            # -------------------------------------------------
-            # EURO NUMBERS
-            # -------------------------------------------------
-
             euro_raw = winning.get(
                 "bonus",
                 [],
             )
 
-            if not isinstance(
-                euro_raw,
-                list,
-            ):
+            if not isinstance(euro_raw, list):
                 euro_raw = []
 
             euro_numbers = [
                 int(number)
                 for number in euro_raw
             ]
-
-            # -------------------------------------------------
-            # FALLBACKS
-            # -------------------------------------------------
 
             if len(euro_numbers) != 2:
 
@@ -426,15 +346,10 @@ class EurojackpotWebScraper:
                     "extraNumbers",
                 ):
 
-                    alternative = winning.get(
-                        key
-                    )
+                    alternative = winning.get(key)
 
                     if (
-                        isinstance(
-                            alternative,
-                            list,
-                        )
+                        isinstance(alternative, list)
                         and len(alternative) == 2
                     ):
                         euro_numbers = [
@@ -443,30 +358,17 @@ class EurojackpotWebScraper:
                         ]
                         break
 
-            # -------------------------------------------------
-            # DATE
-            # -------------------------------------------------
-
             draw_date = self._parse_draw_date(
                 draw.get("drawTime")
             )
 
             if draw_date is None:
-
                 draw_date = self._parse_draw_date(
                     draw.get("drawDate")
                 )
 
             if draw_date is None:
-
-                logger.warning(
-                    "Could not determine draw date."
-                )
                 return None
-
-            # -------------------------------------------------
-            # VALIDATION
-            # -------------------------------------------------
 
             if len(primary_numbers) != 5:
 
@@ -489,45 +391,21 @@ class EurojackpotWebScraper:
                 return None
 
             if len(set(primary_numbers)) != 5:
-
-                logger.warning(
-                    "Duplicate main numbers for draw %s",
-                    draw_date,
-                )
-
                 return None
 
             if len(set(euro_numbers)) != 2:
-
-                logger.warning(
-                    "Duplicate Euro numbers for draw %s",
-                    draw_date,
-                )
-
                 return None
 
             if not all(
                 1 <= number <= 50
                 for number in primary_numbers
             ):
-
-                logger.warning(
-                    "Main number outside 1-50 for draw %s",
-                    draw_date,
-                )
-
                 return None
 
             if not all(
                 1 <= number <= 12
                 for number in euro_numbers
             ):
-
-                logger.warning(
-                    "Euro number outside 1-12 for draw %s",
-                    draw_date,
-                )
-
                 return None
 
             return {
@@ -553,17 +431,11 @@ class EurojackpotWebScraper:
 
             return None
 
-    # =========================================================
-    # DATE PARSER
-    # =========================================================
-
     @staticmethod
     def _parse_draw_date(
         value: Any,
     ) -> Optional[str]:
-        """
-        Convert OPAP draw time/date to YYYY-MM-DD.
-        """
+        """Convert OPAP date/time to YYYY-MM-DD."""
 
         if value is None:
             return None
@@ -577,7 +449,6 @@ class EurojackpotWebScraper:
 
                 timestamp = float(value)
 
-                # Unix milliseconds
                 if timestamp > 10_000_000_000:
                     timestamp /= 1000.0
 
@@ -586,14 +457,9 @@ class EurojackpotWebScraper:
                     tz=timezone.utc,
                 )
 
-                return dt.strftime(
-                    "%Y-%m-%d"
-                )
+                return dt.strftime("%Y-%m-%d")
 
-            if isinstance(
-                value,
-                str,
-            ):
+            if isinstance(value, str):
 
                 text = value.strip()
 
@@ -618,13 +484,10 @@ class EurojackpotWebScraper:
                 for fmt in formats:
 
                     try:
-
                         return datetime.strptime(
                             text,
                             fmt,
-                        ).strftime(
-                            "%Y-%m-%d"
-                        )
+                        ).strftime("%Y-%m-%d")
 
                     except ValueError:
                         continue
@@ -652,25 +515,11 @@ if __name__ == "__main__":
 
     if latest:
 
-        print(
-            "Latest Eurojackpot draw:"
-        )
-
-        print(
-            f"Date: {latest['draw_date']}"
-        )
-
-        print(
-            f"Main: {latest['primary_numbers']}"
-        )
-
-        print(
-            f"Euro: {latest['euro_numbers']}"
-        )
+        print("Latest Eurojackpot draw:")
+        print(f"Date: {latest['draw_date']}")
+        print(f"Main: {latest['primary_numbers']}")
+        print(f"Euro: {latest['euro_numbers']}")
 
     else:
 
-        print(
-            "No Eurojackpot draw retrieved."
-        )
-```
+        print("No Eurojackpot draw retrieved.")

@@ -68,13 +68,10 @@ class EurojackpotWebScraper:
         now = datetime.now()
 
         for month in range(1, 13):
-            # Αν ο μήνας είναι στο μέλλον για το τρέχον έτος, σταματάμε
             if year == now.year and month > now.month:
                 break
 
             last_day = calendar.monthrange(year, month)[1]
-            
-            # Αν είναι ο τρέχων μήνας, σταματάμε στη σημερινή ημέρα για αποφυγή 400 Bad Request
             if year == now.year and month == now.month:
                 end_day = now.day
             else:
@@ -107,17 +104,24 @@ class EurojackpotWebScraper:
             winning = draw.get("winningNumbers", {})
             primary_numbers = sorted(winning.get("list", []))
 
-            # Ανάκτηση των Euro numbers από τη δομή του OPAP API
-            euro_raw = winning.get("sideClassNumbers", {})
-            if isinstance(euro_raw, dict):
-                euro_list = euro_raw.get("list", [])
-            elif isinstance(euro_raw, list):
-                euro_list = euro_raw
-            else:
-                euro_list = winning.get("bonus", [])
+            # Ανάκτηση Euro numbers από όλα τα πιθανά πεδία του API του ΟΠΑΠ
+            euro_list = []
+            if "sideClassNum" in winning and isinstance(winning["sideClassNum"], list):
+                euro_list = winning["sideClassNum"]
+            elif "sideClassNumbers" in winning:
+                scn = winning["sideClassNumbers"]
+                if isinstance(scn, dict):
+                    euro_list = scn.get("list", [])
+                elif isinstance(scn, list):
+                    euro_list = scn
+            elif "sideClassList" in winning and isinstance(winning["sideClassList"], list):
+                euro_list = winning["sideClassList"]
+            elif "bonus" in winning and isinstance(winning["bonus"], list):
+                euro_list = winning["bonus"]
 
             euro_numbers = sorted(euro_list)
 
+            # Επιβεβαίωση δομής (5 κύριοι αριθμοί & 2 αριθμοί Euro)
             if len(primary_numbers) != 5 or len(euro_numbers) != 2:
                 logger.warning(
                     "Invalid numbers structure for draw %s: primary=%s, euro=%s",

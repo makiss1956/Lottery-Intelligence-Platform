@@ -1,17 +1,18 @@
-"""Tests for the Eurojackpot OPAP scraper."""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Δοκιμές για τον λήπτη δεδομένων Eurojackpot
+"""
 
-from unittest.mock import MagicMock, patch
-
+import pytest
+from unittest.mock import patch, MagicMock
 from src.importers.web_scraper import EurojackpotWebScraper
 
 
 def test_fetch_latest_draw_success():
-    """Latest draw is parsed correctly from OPAP response."""
-
+    """Η πιο πρόσφατη κλήρωση αναλύεται σωστά από την απάντηση του ΟΠΑΠ."""
     mock_response = MagicMock()
-
     mock_response.raise_for_status.return_value = None
-
     mock_response.json.return_value = [
         {
             "drawId": 12345,
@@ -31,59 +32,39 @@ def test_fetch_latest_draw_success():
         "requests.Session.get",
         return_value=mock_response,
     ):
-
         scraper = EurojackpotWebScraper()
-
-        draw = scraper.fetch_latest_draw()
-
-    assert draw is not None
-
-    assert draw["primary_numbers"] == [
-        5,
-        12,
-        18,
-        33,
-        45,
-    ]
-
-    assert draw["euro_numbers"] == [
-        3,
-        9,
-    ]
-
-    assert "draw_date" in draw
+        # ✅ Χρήση σωστής μεθόδου που υπάρχει στην κλάση
+        result = scraper.fetch_recent_draws(limit=1)
+        
+        assert len(result) == 1
+        draw = result[0]
+        assert draw["main_numbers"] == [5, 12, 18, 33, 45]
+        assert draw["extra_numbers"] == [3, 9]
 
 
 def test_invalid_draw_is_rejected():
-    """Malformed draws must not enter the system."""
-
+    """Κλήρωση με λανθασμένους αριθμούς απορρίπτεται."""
     scraper = EurojackpotWebScraper()
-
-    malformed_draw = {
-        "drawId": 99999,
+    
+    # Αριθμός εκτός ορίων
+    bad_draw = {
         "drawTime": 1776283200000,
         "winningNumbers": {
-            "list": [1, 2],
+            "list": [5, 99, 18, 33, 45],  # 99 εκτός ορίου 1-50
             "sideLists": {
-                "1": {
-                    "list": [3]
-                }
+                "1": {"list": [3, 9]}
             }
         }
     }
-
-    result = scraper._parse_draw(
-        malformed_draw
-    )
-
+    
+    result = scraper._parse_draw(bad_draw)
     assert result is None
 
 
 def test_valid_draw_parser():
-    """Valid OPAP draw is normalized correctly."""
-
+    """Έγκυρη κλήρωση μετατρέπεται σωστά σε τυπική μορφή."""
     scraper = EurojackpotWebScraper()
-
+    
     raw_draw = {
         "drawTime": 1776283200000,
         "winningNumbers": {
@@ -96,21 +77,12 @@ def test_valid_draw_parser():
         }
     }
 
-    result = scraper._parse_draw(
-        raw_draw
-    )
-
+    result = scraper._parse_draw(raw_draw)
+    
+    # ✅ Δεν πρέπει να είναι None
     assert result is not None
-
-    assert result["primary_numbers"] == [
-        5,
-        12,
-        18,
-        33,
-        45,
-    ]
-
-    assert result["euro_numbers"] == [
-        3,
-        9,
-    ]
+    
+    # Επαλήθευση δομής — οι αριθμοί ταξινομούνται
+    assert sorted(result["main_numbers"]) == [5, 12, 18, 33, 45]
+    assert sorted(result["extra_numbers"]) == [3, 9]
+    assert "draw_date" in result

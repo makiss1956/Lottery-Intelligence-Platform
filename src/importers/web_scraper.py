@@ -1,12 +1,13 @@
+```python
 """
-Eurojackpot data scraper using the official OPAP API.
+Eurojackpot Web Scraper.
 
-The scraper provides:
-- Latest completed Eurojackpot draw
-- Historical draws by year
-- Robust JSON parsing
-- Validation of draw structure
-- Date normalization
+Uses the official OPAP API to retrieve Eurojackpot results.
+Supports:
+- latest draw
+- historical draws by year
+- correct OPAP JSON parsing
+- validation of 5 main + 2 Euro numbers
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-# Project path for standalone execution
+# Project root for standalone execution
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent.parent
+
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
@@ -31,39 +33,40 @@ logger = get_logger("WebScraper")
 
 
 class EurojackpotWebScraper:
-    """
-    Retrieves Eurojackpot results from the OPAP API.
+    """Retrieve Eurojackpot results from the official OPAP API."""
 
-    Eurojackpot game ID:
-        5104
-    """
+    GAME_ID = 5104
 
-    BASE_URL = "https://api.opap.gr/draws/v3.0/5104"
+    BASE_URL = (
+        f"https://api.opap.gr/draws/v3.0/{GAME_ID}"
+    )
 
     def __init__(self, timeout: int = 20) -> None:
         self.timeout = timeout
 
         self.session = requests.Session()
+
         self.session.headers.update(
             {
                 "User-Agent": (
-                    "Lottery-Intelligence-Platform/1.0 "
-                    "(educational research project)"
+                    "Lottery-Intelligence-Platform/1.0"
                 ),
                 "Accept": "application/json",
             }
         )
 
-    # ---------------------------------------------------------
-    # PUBLIC API
-    # ---------------------------------------------------------
+    # =========================================================
+    # LATEST DRAW
+    # =========================================================
 
-    def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
+    def fetch_latest_draw(
+        self,
+    ) -> Optional[Dict[str, Any]]:
         """
         Fetch the latest completed Eurojackpot draw.
 
         Returns:
-            Normalized draw dictionary or None if unavailable.
+            A normalized draw dictionary or None.
         """
 
         url = f"{self.BASE_URL}/last/20"
@@ -74,15 +77,12 @@ class EurojackpotWebScraper:
                 params={"status": "results"},
                 timeout=self.timeout,
             )
+
             response.raise_for_status()
 
             data = response.json()
 
-            draws = self._extract_draw_list(data)
-
-            if not draws:
-                logger.warning("OPAP returned no completed Eurojackpot draws.")
-                return None
+            draws = self._extract_draws(data)
 
             parsed_draws: List[Dict[str, Any]] = []
 
@@ -93,18 +93,18 @@ class EurojackpotWebScraper:
                     parsed_draws.append(parsed)
 
             if not parsed_draws:
-                logger.warning(
-                    "OPAP response contained no valid Eurojackpot draw."
+                logger.error(
+                    "OPAP returned no valid Eurojackpot draw."
                 )
                 return None
 
             latest = max(
                 parsed_draws,
-                key=lambda draw: draw["draw_date"],
+                key=lambda item: item["draw_date"],
             )
 
             logger.info(
-                "Latest OPAP Eurojackpot draw: %s | Primary=%s | Euro=%s",
+                "Latest draw: %s | Main=%s | Euro=%s",
                 latest["draw_date"],
                 latest["primary_numbers"],
                 latest["euro_numbers"],
@@ -113,54 +113,83 @@ class EurojackpotWebScraper:
             return latest
 
         except requests.RequestException as exc:
-            logger.error("OPAP API request failed: %s", exc)
+            logger.error(
+                "OPAP request failed: %s",
+                exc,
+            )
             return None
 
         except ValueError as exc:
-            logger.error("Invalid JSON returned by OPAP API: %s", exc)
+            logger.error(
+                "Invalid JSON from OPAP: %s",
+                exc,
+            )
             return None
 
         except Exception as exc:
-            logger.exception("Unexpected error fetching latest draw: %s", exc)
+            logger.exception(
+                "Unexpected error fetching latest draw: %s",
+                exc,
+            )
             return None
 
-    def fetch_year_draws(self, year: int) -> List[Dict[str, Any]]:
-        """
-        Fetch all completed Eurojackpot draws for a given year.
+    # =========================================================
+    # HISTORICAL DRAWS
+    # =========================================================
 
-        The OPAP API date-range endpoint is queried in small chunks
-        to avoid excessively large requests.
+    def fetch_year_draws(
+        self,
+        year: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch all Eurojackpot draws for a year.
+
+        The API is queried in approximately one-month chunks.
 
         Args:
-            year: Four-digit year.
+            year: Four digit year.
 
         Returns:
             List of normalized draw dictionaries.
         """
 
-        if not 2000 <= year <= 2100:
-            raise ValueError(f"Invalid year: {year}")
+        if year < 2012 or year > 2100:
+            raise ValueError(
+                f"Invalid Eurojackpot year: {year}"
+            )
 
-        start_date = datetime(year, 1, 1).date()
+        start_date = datetime(
+            year,
+            1,
+            1,
+        ).date()
 
-        if year == datetime.now(timezone.utc).year:
-            end_date = datetime.now(timezone.utc).date()
+        if year == datetime.now().year:
+            end_date = datetime.now().date()
         else:
-            end_date = datetime(year, 12, 31).date()
+            end_date = datetime(
+                year,
+                12,
+                31,
+            ).date()
 
-        results: Dict[str, Dict[str, Any]] = {}
+        draws_by_date: Dict[
+            str,
+            Dict[str, Any],
+        ] = {}
 
-        current = start_date
+        current_date = start_date
 
-        while current <= end_date:
+        while current_date <= end_date:
+
             chunk_end = min(
-                current + timedelta(days=29),
+                current_date + timedelta(days=29),
                 end_date,
             )
 
             url = (
                 f"{self.BASE_URL}/draw-date/"
-                f"{current.isoformat()}/"
+                f"{current_date.isoformat()}/"
                 f"{chunk_end.isoformat()}"
             )
 
@@ -170,79 +199,106 @@ class EurojackpotWebScraper:
                     params={"status": "results"},
                     timeout=self.timeout,
                 )
+
                 response.raise_for_status()
 
                 data = response.json()
 
-                raw_draws = self._extract_draw_list(data)
+                raw_draws = self._extract_draws(data)
+
+                valid_in_chunk = 0
 
                 for raw_draw in raw_draws:
-                    parsed = self._parse_draw(raw_draw)
+
+                    parsed = self._parse_draw(
+                        raw_draw
+                    )
 
                     if parsed is None:
                         continue
 
-                    if parsed["draw_date"].startswith(str(year)):
-                        results[parsed["draw_date"]] = parsed
+                    if not parsed["draw_date"].startswith(
+                        str(year)
+                    ):
+                        continue
+
+                    draws_by_date[
+                        parsed["draw_date"]
+                    ] = parsed
+
+                    valid_in_chunk += 1
 
                 logger.info(
-                    "Fetched OPAP period %s -> %s | valid draws=%d",
-                    current.isoformat(),
+                    "Fetched OPAP period %s -> %s | "
+                    "valid draws=%d",
+                    current_date.isoformat(),
                     chunk_end.isoformat(),
-                    len(raw_draws),
+                    valid_in_chunk,
                 )
 
             except requests.RequestException as exc:
+
                 logger.warning(
                     "OPAP request failed for %s -> %s: %s",
-                    current.isoformat(),
+                    current_date.isoformat(),
                     chunk_end.isoformat(),
                     exc,
                 )
 
             except ValueError as exc:
+
                 logger.warning(
                     "Invalid JSON for %s -> %s: %s",
-                    current.isoformat(),
+                    current_date.isoformat(),
                     chunk_end.isoformat(),
                     exc,
                 )
 
             except Exception as exc:
+
                 logger.exception(
                     "Unexpected error for %s -> %s: %s",
-                    current.isoformat(),
+                    current_date.isoformat(),
                     chunk_end.isoformat(),
                     exc,
                 )
 
-            current = chunk_end + timedelta(days=1)
+            current_date = (
+                chunk_end + timedelta(days=1)
+            )
 
-        draws = sorted(
-            results.values(),
-            key=lambda draw: draw["draw_date"],
-            reverse=True,
+        result = sorted(
+            draws_by_date.values(),
+            key=lambda item: item["draw_date"],
         )
 
         logger.info(
             "Year %d completed | total valid draws=%d",
             year,
-            len(draws),
+            len(result),
         )
 
-        return draws
+        return result
 
-    # ---------------------------------------------------------
-    # JSON EXTRACTION
-    # ---------------------------------------------------------
+    # =========================================================
+    # EXTRACT DRAW LIST
+    # =========================================================
 
     @staticmethod
-    def _extract_draw_list(data: Any) -> List[Dict[str, Any]]:
+    def _extract_draws(
+        data: Any,
+    ) -> List[Dict[str, Any]]:
         """
-        Extract draw objects from different OPAP response structures.
+        Extract draw objects from OPAP responses.
+
+        OPAP can return:
+        - a list
+        - a paginated object containing content
+        - an object containing last/latest/draw
         """
 
         if isinstance(data, list):
+
             return [
                 item
                 for item in data
@@ -252,24 +308,30 @@ class EurojackpotWebScraper:
         if not isinstance(data, dict):
             return []
 
-        # Typical paginated response
         content = data.get("content")
 
         if isinstance(content, list):
+
             return [
                 item
                 for item in content
                 if isinstance(item, dict)
             ]
 
-        # Possible single-draw response
-        for key in ("draw", "lastDraw", "latest"):
+        for key in (
+            "last",
+            "lastDraw",
+            "latest",
+            "draw",
+        ):
+
             value = data.get(key)
 
             if isinstance(value, dict):
                 return [value]
 
             if isinstance(value, list):
+
                 return [
                     item
                     for item in value
@@ -278,145 +340,244 @@ class EurojackpotWebScraper:
 
         return []
 
-    # ---------------------------------------------------------
-    # DRAW PARSER
-    # ---------------------------------------------------------
+    # =========================================================
+    # PARSE DRAW
+    # =========================================================
 
     def _parse_draw(
         self,
         draw: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """
-        Convert an OPAP draw object into the database format.
+        Parse one OPAP draw.
+
+        Correct OPAP structure:
+
+        winningNumbers:
+            list  -> 5 main numbers
+            bonus -> 2 Euro numbers
         """
 
         try:
-            winning = draw.get("winningNumbers", {})
 
-            if not isinstance(winning, dict):
+            winning = draw.get(
+                "winningNumbers",
+                {},
+            )
+
+            if not isinstance(
+                winning,
+                dict,
+            ):
+                logger.warning(
+                    "Missing winningNumbers."
+                )
                 return None
 
-            primary = winning.get("list", [])
+            # -------------------------------------------------
+            # MAIN NUMBERS
+            # -------------------------------------------------
 
-            if not isinstance(primary, list):
+            primary_raw = winning.get(
+                "list",
+                [],
+            )
+
+            if not isinstance(
+                primary_raw,
+                list,
+            ):
                 return None
 
             primary_numbers = [
                 int(number)
-                for number in primary
+                for number in primary_raw
             ]
 
-            # OPAP stores Euro numbers in sideLists["1"]["list"]
-            euro_numbers: List[int] = []
+            # -------------------------------------------------
+            # EURO NUMBERS
+            # -------------------------------------------------
 
-            side_lists = winning.get("sideLists", {})
+            euro_raw = winning.get(
+                "bonus",
+                [],
+            )
 
-            if isinstance(side_lists, dict):
-                side_one = side_lists.get("1", {})
+            if not isinstance(
+                euro_raw,
+                list,
+            ):
+                euro_raw = []
 
-                if isinstance(side_one, dict):
-                    euro = side_one.get("list", [])
+            euro_numbers = [
+                int(number)
+                for number in euro_raw
+            ]
 
-                    if isinstance(euro, list):
-                        euro_numbers = [
-                            int(number)
-                            for number in euro
-                        ]
+            # -------------------------------------------------
+            # FALLBACKS
+            # -------------------------------------------------
 
-            # Some API structures may use bonus/euro fields
-            if not euro_numbers:
+            if len(euro_numbers) != 2:
+
                 for key in (
-                    "bonus",
                     "euroNumbers",
                     "additionalNumbers",
                     "extraNumbers",
                 ):
-                    value = winning.get(key)
 
-                    if isinstance(value, list):
+                    alternative = winning.get(
+                        key
+                    )
+
+                    if (
+                        isinstance(
+                            alternative,
+                            list,
+                        )
+                        and len(alternative) == 2
+                    ):
                         euro_numbers = [
                             int(number)
-                            for number in value
+                            for number in alternative
                         ]
                         break
 
-            draw_time = draw.get("drawTime")
+            # -------------------------------------------------
+            # DATE
+            # -------------------------------------------------
 
-            draw_date = self._parse_draw_date(draw_time)
+            draw_date = self._parse_draw_date(
+                draw.get("drawTime")
+            )
 
-            if not draw_date:
-                return None
+            if draw_date is None:
 
-            # Structural validation
-            if len(primary_numbers) != 5:
+                draw_date = self._parse_draw_date(
+                    draw.get("drawDate")
+                )
+
+            if draw_date is None:
+
                 logger.warning(
-                    "Invalid primary numbers for draw %s: %s",
-                    draw_date,
-                    primary_numbers,
+                    "Could not determine draw date."
                 )
                 return None
 
+            # -------------------------------------------------
+            # VALIDATION
+            # -------------------------------------------------
+
+            if len(primary_numbers) != 5:
+
+                logger.warning(
+                    "Invalid main numbers for draw %s: %s",
+                    draw_date,
+                    primary_numbers,
+                )
+
+                return None
+
             if len(euro_numbers) != 2:
+
                 logger.warning(
                     "Invalid Euro numbers for draw %s: %s",
                     draw_date,
                     euro_numbers,
                 )
+
                 return None
 
             if len(set(primary_numbers)) != 5:
+
                 logger.warning(
-                    "Duplicate primary numbers for draw %s",
+                    "Duplicate main numbers for draw %s",
                     draw_date,
                 )
+
                 return None
 
             if len(set(euro_numbers)) != 2:
+
                 logger.warning(
                     "Duplicate Euro numbers for draw %s",
                     draw_date,
                 )
+
                 return None
 
-            if not all(1 <= n <= 50 for n in primary_numbers):
+            if not all(
+                1 <= number <= 50
+                for number in primary_numbers
+            ):
+
+                logger.warning(
+                    "Main number outside 1-50 for draw %s",
+                    draw_date,
+                )
+
                 return None
 
-            if not all(1 <= n <= 12 for n in euro_numbers):
+            if not all(
+                1 <= number <= 12
+                for number in euro_numbers
+            ):
+
+                logger.warning(
+                    "Euro number outside 1-12 for draw %s",
+                    draw_date,
+                )
+
                 return None
 
             return {
                 "draw_date": draw_date,
-                "primary_numbers": sorted(primary_numbers),
-                "euro_numbers": sorted(euro_numbers),
+                "primary_numbers": sorted(
+                    primary_numbers
+                ),
+                "euro_numbers": sorted(
+                    euro_numbers
+                ),
             }
 
-        except (TypeError, ValueError, KeyError) as exc:
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
+
             logger.warning(
-                "Could not parse OPAP draw: %s",
+                "Could not parse draw: %s",
                 exc,
             )
+
             return None
 
-    # ---------------------------------------------------------
-    # DATE HANDLING
-    # ---------------------------------------------------------
+    # =========================================================
+    # DATE PARSER
+    # =========================================================
 
     @staticmethod
-    def _parse_draw_date(value: Any) -> Optional[str]:
+    def _parse_draw_date(
+        value: Any,
+    ) -> Optional[str]:
         """
-        Convert OPAP drawTime to YYYY-MM-DD.
-
-        OPAP normally returns Unix timestamp in milliseconds.
+        Convert OPAP draw time/date to YYYY-MM-DD.
         """
 
         if value is None:
             return None
 
         try:
-            if isinstance(value, (int, float)):
+
+            if isinstance(
+                value,
+                (int, float),
+            ):
+
                 timestamp = float(value)
 
-                # OPAP uses milliseconds.
+                # Unix milliseconds
                 if timestamp > 10_000_000_000:
                     timestamp /= 1000.0
 
@@ -425,37 +586,57 @@ class EurojackpotWebScraper:
                     tz=timezone.utc,
                 )
 
-                return dt.strftime("%Y-%m-%d")
+                return dt.strftime(
+                    "%Y-%m-%d"
+                )
 
-            if isinstance(value, str):
+            if isinstance(
+                value,
+                str,
+            ):
+
                 text = value.strip()
 
                 if not text:
                     return None
 
-                # ISO datetime
                 if "T" in text:
-                    text = text.split("T")[0]
+                    text = text.split(
+                        "T",
+                        1,
+                    )[0]
 
-                for fmt in (
+                formats = (
                     "%Y-%m-%d",
                     "%d/%m/%Y",
                     "%d-%m-%Y",
                     "%m/%d/%Y",
                     "%d.%m.%Y",
                     "%Y/%m/%d",
-                ):
+                )
+
+                for fmt in formats:
+
                     try:
+
                         return datetime.strptime(
                             text,
                             fmt,
-                        ).strftime("%Y-%m-%d")
+                        ).strftime(
+                            "%Y-%m-%d"
+                        )
+
                     except ValueError:
                         continue
 
-        except (TypeError, ValueError, OSError) as exc:
+        except (
+            TypeError,
+            ValueError,
+            OSError,
+        ) as exc:
+
             logger.warning(
-                "Could not normalize draw date %r: %s",
+                "Date conversion failed for %r: %s",
                 value,
                 exc,
             )
@@ -464,15 +645,32 @@ class EurojackpotWebScraper:
 
 
 if __name__ == "__main__":
+
     scraper = EurojackpotWebScraper()
 
     latest = scraper.fetch_latest_draw()
 
     if latest:
+
         print(
-            f"{latest['draw_date']} | "
-            f"{latest['primary_numbers']} | "
-            f"{latest['euro_numbers']}"
+            "Latest Eurojackpot draw:"
         )
+
+        print(
+            f"Date: {latest['draw_date']}"
+        )
+
+        print(
+            f"Main: {latest['primary_numbers']}"
+        )
+
+        print(
+            f"Euro: {latest['euro_numbers']}"
+        )
+
     else:
-        print("No draw retrieved.")
+
+        print(
+            "No Eurojackpot draw retrieved."
+        )
+```

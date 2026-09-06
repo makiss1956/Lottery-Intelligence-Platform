@@ -65,15 +65,23 @@ class EurojackpotWebScraper:
         Fetch all draws for a given year by making monthly chunks.
         """
         all_draws: List[Dict[str, Any]] = []
+        now = datetime.now()
 
         for month in range(1, 13):
-            now = datetime.now()
+            # Αν ο μήνας είναι στο μέλλον για το τρέχον έτος, σταματάμε
             if year == now.year and month > now.month:
                 break
 
             last_day = calendar.monthrange(year, month)[1]
+            
+            # Αν είναι ο τρέχων μήνας, σταματάμε στη σημερινή ημέρα για αποφυγή 400 Bad Request
+            if year == now.year and month == now.month:
+                end_day = now.day
+            else:
+                end_day = last_day
+
             start_date = f"{year}-{month:02d}-01"
-            end_date = f"{year}-{month:02d}-{last_day:02d}"
+            end_date = f"{year}-{month:02d}-{end_day:02d}"
 
             month_draws = self.fetch_draws_range(start_date, end_date)
             all_draws.extend(month_draws)
@@ -98,11 +106,17 @@ class EurojackpotWebScraper:
 
             winning = draw.get("winningNumbers", {})
             primary_numbers = sorted(winning.get("list", []))
-            
-            # Στο Eurojackpot οι 2 αριθμοί Euro βρίσκονται στο 'sideClassWinningNumbers'
-            # ή εναλλακτικά στο 'sideClassNum' / 'bonus'
-            euro_numbers = winning.get("sideClassWinningNumbers") or winning.get("sideClassNum") or winning.get("bonus", [])
-            euro_numbers = sorted(euro_numbers)
+
+            # Ανάκτηση των Euro numbers από τη δομή του OPAP API
+            euro_raw = winning.get("sideClassNumbers", {})
+            if isinstance(euro_raw, dict):
+                euro_list = euro_raw.get("list", [])
+            elif isinstance(euro_raw, list):
+                euro_list = euro_raw
+            else:
+                euro_list = winning.get("bonus", [])
+
+            euro_numbers = sorted(euro_list)
 
             if len(primary_numbers) != 5 or len(euro_numbers) != 2:
                 logger.warning(

@@ -2,10 +2,10 @@ name: Eurojackpot Automated Pipeline
 
 on:
   schedule:
-    # Main run after the Eurojackpot draw
-    - cron: "0 21 * * 2,5"
+    # Κύρια εκτέλεση: Τρίτη & Παρασκευή στις 19:30 UTC (21:30 ώρα Ελλάδας - μετά την κλήρωση)
+    - cron: "30 19 * * 2,5"
 
-    # Catch-up run
+    # Catch-up εκτέλεση: Τετάρτη & Σάββατο στις 04:30 UTC (06:30 ώρα Ελλάδας)
     - cron: "30 4 * * 3,6"
 
   workflow_dispatch:
@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -60,7 +59,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add data/ reports/ exports/
+          git add data/ reports/ exports/ || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
@@ -76,3 +75,4 @@ jobs:
           path: |
             reports/
             exports/
+          if-no-files-found: ignore

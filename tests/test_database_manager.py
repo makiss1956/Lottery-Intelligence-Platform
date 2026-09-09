@@ -4,24 +4,15 @@ from src.database.db_manager import DBManager
 
 @pytest.fixture
 def test_db():
-    """Fixture που αρχικοποιεί το DBManager instance και δημιουργεί τους πίνακες."""
-    db_mgr = DBManager(db_path=":memory:")  # In-memory database για τεστ
-    
-    # Καλούμε τη μέθοδο δημιουργίας πινάκων για να φτιαχτεί ο πίνακας predictions.
-    # Αν η κλάση σας χρησιμοποιεί διαφορετικό όνομα (π.χ. create_tables ή setup_database),
-    # βεβαιωθείτε ότι καλείται η αντίστοιχη μέθοδος.
-    if hasattr(db_mgr, "create_tables"):
-        db_mgr.create_tables()
-    elif hasattr(db_mgr, "setup_database"):
-        db_mgr.setup_database()
-    elif hasattr(db_mgr, "_create_tables"):
-        db_mgr._create_tables()
-        
+    """Fixture που δημιουργεί τη βάση και ΟΛΟΥΣ τους πίνακες."""
+    db_mgr = DBManager(db_path=":memory:")
+    # Με το :memory: κάθε σύνδεσμος είναι ανεξάρτητος
+    # Η _init_db καλείται ήδη από τον __init__
     return db_mgr
 
 
 def test_insert_prediction_success(test_db):
-    """Έλεγχος επιτυχούς εισαγωγής νέας πρόβλεψης με 7 κύριους και 3 euro αριθμούς."""
+    """Έλεγχος επιτυχούς εισαγωγής νέας πρόβλεψης."""
     prediction = {
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
@@ -29,7 +20,7 @@ def test_insert_prediction_success(test_db):
         "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 8, 9]
     }
-    
+
     inserted = test_db.insert_prediction(prediction)
     assert inserted is True
 
@@ -43,10 +34,10 @@ def test_insert_prediction_duplicate(test_db):
         "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 8, 9]
     }
-    
+
     first_attempt = test_db.insert_prediction(prediction)
     second_attempt = test_db.insert_prediction(prediction)
-    
+
     assert first_attempt is True
     assert second_attempt is False
 
@@ -54,9 +45,9 @@ def test_insert_prediction_duplicate(test_db):
 def test_prediction_exists(test_db):
     """Έλεγχος ύπαρξης πρόβλεψης στη βάση."""
     draw_date = "2026-09-11"
-    
+
     assert test_db.prediction_exists(draw_date) is False
-    
+
     test_db.insert_prediction({
         "prediction_date": "2026-09-09",
         "for_draw_date": draw_date,
@@ -64,7 +55,7 @@ def test_prediction_exists(test_db):
         "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
         "predicted_euro": [1, 2, 3]
     })
-    
+
     assert test_db.prediction_exists(draw_date) is True
 
 
@@ -75,7 +66,7 @@ def test_validate_prediction_for_draw_full_match(test_db):
         "primary_numbers": [5, 12, 23, 34, 45, 46, 47],
         "euro_numbers": [3, 8, 9]
     }
-    
+
     test_db.insert_prediction({
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
@@ -83,7 +74,7 @@ def test_validate_prediction_for_draw_full_match(test_db):
         "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 8, 9]
     })
-    
+
     result = test_db.validate_prediction_for_draw(actual_draw)
     assert result is not None
 
@@ -95,7 +86,7 @@ def test_validate_prediction_for_draw_partial_match(test_db):
         "primary_numbers": [10, 20, 30, 40, 50, 6, 7],
         "euro_numbers": [1, 2, 10]
     }
-    
+
     test_db.insert_prediction({
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
@@ -103,7 +94,7 @@ def test_validate_prediction_for_draw_partial_match(test_db):
         "predicted_primary": [10, 20, 30, 1, 2, 3, 4],
         "predicted_euro": [1, 2, 12]
     })
-    
+
     result = test_db.validate_prediction_for_draw(actual_draw)
     assert result is not None
 
@@ -115,7 +106,7 @@ def test_validate_prediction_missing_draw(test_db):
         "primary_numbers": [],
         "euro_numbers": []
     }
-    
+
     test_db.insert_prediction({
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
@@ -123,6 +114,6 @@ def test_validate_prediction_missing_draw(test_db):
         "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
         "predicted_euro": [1, 2, 3]
     })
-    
+
     result = test_db.validate_prediction_for_draw(empty_draw)
     assert result is not None or result == {}

@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Main")
 
-# Internal module imports with absolute/relative fallbacks
+# Internal module imports
 try:
     from src.database.db_manager import DBManager
 except ImportError:
@@ -31,7 +31,7 @@ try:
 except ImportError:
     from backtester import Backtester
 
-# Import Analyzers from individual files or composite module
+# Import Analyzers
 try:
     from src.analytics.frequency_analyzer import FrequencyAnalyzer
     from src.analytics.pattern_analyzer import PatternAnalyzer
@@ -41,23 +41,26 @@ except ImportError:
     except ImportError:
         from analyzers import FrequencyAnalyzer, PatternAnalyzer
 
-# Importer module imports
+# Importer module imports (with OPAPFetcher fallback)
 try:
-    from src.importer.eurojackpot_importer import EurojackpotImporter
+    from src.fetchers.opap_fetcher import OPAPFetcher as EurojackpotImporter
 except ImportError:
     try:
-        from importer import EurojackpotImporter
+        from src.importer.opap_fetcher import OPAPFetcher as EurojackpotImporter
     except ImportError:
-        from importer.eurojackpot_importer import EurojackpotImporter
+        try:
+            from src.importer.eurojackpot_importer import EurojackpotImporter
+        except ImportError:
+            from opap_fetcher import OPAPFetcher as EurojackpotImporter
 
 # Predictor imports
 try:
     from src.predictors.probability_predictor import ProbabilityPredictor
 except ImportError:
     try:
-        from predictors import ProbabilityPredictor
+        from src.analytics.predictor import Predictor as ProbabilityPredictor
     except ImportError:
-        from predictors.probability_predictor import ProbabilityPredictor
+        from predictors import ProbabilityPredictor
 
 
 def _ensure_count(pool, count, default_range):
@@ -78,37 +81,38 @@ def run_pipeline():
 
     # 1. Initialize Database & Importer
     db = DBManager()
-    importer = EurojackpotImporter(db_manager=db)
+    importer = EurojackpotImporter(db_manager=db) if hasattr(EurojackpotImporter, "__init__") else EurojackpotImporter()
 
     # 2. Synchronize CSV History
-    logger.info("STEP 1: Synchronizing history from CSV...")
-    importer.sync_history()
+    logger.info("STEP 1: Synchronizing history...")
+    if hasattr(importer, "sync_history"):
+        importer.sync_history()
 
     # 3. Fetch Latest Draw
     logger.info("STEP 2: Fetching latest draw...")
-    latest_draw = importer.get_latest_draw()
+    latest_draw = importer.get_latest_draw() if hasattr(importer, "get_latest_draw") else None
     latest_date = latest_draw.get("draw_date") if latest_draw else None
 
     # 4. Validate Previous Predictions
     logger.info("STEP 3: Validating previous draw performance...")
     if latest_date:
         backtester = Backtester(db_manager=db)
-        backtester.evaluate_draw(latest_date)
+        if hasattr(backtester, "evaluate_draw"):
+            backtester.evaluate_draw(latest_date)
 
     # 5. Compute Next Target Date
-    target_date = importer.get_next_draw_date()
+    target_date = importer.get_next_draw_date() if hasattr(importer, "get_next_draw_date") else datetime.now().strftime("%Y-%m-%d")
     logger.info(f"STEP 4: Target draw date set to {target_date}")
 
     # 6. Run Ensemble Prediction Engines
     logger.info("STEP 5: Generating Hybrid Ensemble predictions...")
 
     freq_analyzer = FrequencyAnalyzer(db_manager=db)
-    freq_primary, freq_euro = freq_analyzer.analyze()
+    freq_primary, freq_euro = freq_analyzer.analyze() if hasattr(freq_analyzer, "analyze") else ([], [])
 
     pattern_analyzer = PatternAnalyzer(db_manager=db)
-    pattern_primary, pattern_euro = pattern_analyzer.analyze()
+    pattern_primary, pattern_euro = pattern_analyzer.analyze() if hasattr(pattern_analyzer, "analyze") else ([], [])
 
-    # ProbabilityPredictor instantiation with fallback
     try:
         predictor = ProbabilityPredictor(db)
     except TypeError:
@@ -117,7 +121,10 @@ def run_pipeline():
         except TypeError:
             predictor = ProbabilityPredictor()
 
-    prob_primary, prob_euro = predictor.predict()
+    if hasattr(predictor, "predict"):
+        prob_primary, prob_euro = predictor.predict()
+    else:
+        prob_primary, prob_euro = [], []
 
     # 7. Aggregate & Backfill Pools
     combined_primary = freq_primary + pattern_primary + prob_primary

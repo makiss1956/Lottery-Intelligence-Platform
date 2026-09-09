@@ -37,19 +37,19 @@ jobs:
         run: |
           python scripts/update_historical_csv_v2.py
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
 
       - name: Run Tests
         run: |
           python -m pytest tests/ -v
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
 
       - name: Run Full Pipeline
         run: |
           python src/main.py
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
           LOTTERY_EMAIL_USER: ${{ secrets.LOTTERY_EMAIL_USER }}
           LOTTERY_EMAIL_PASS: ${{ secrets.LOTTERY_EMAIL_PASS }}
           LOTTERY_EMAIL_TO: ${{ secrets.LOTTERY_EMAIL_TO }}

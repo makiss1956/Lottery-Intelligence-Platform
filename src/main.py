@@ -2,11 +2,15 @@ import sys
 import os
 import logging
 from datetime import datetime
+from pathlib import Path
 
-# Ensure src directory is in sys.path for top-level module resolution
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+# Ensure project root directory is in sys.path for proper module resolution
+SRC_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SRC_DIR.parent
+
+for path_entry in (str(SRC_DIR), str(ROOT_DIR)):
+    if path_entry not in sys.path:
+        sys.path.insert(0, path_entry)
 
 # Configure logger
 logging.basicConfig(
@@ -16,22 +20,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Main")
 
-# Internal module imports
-from db_manager import DBManager
-from backtester import Backtester
-from analyzers import FrequencyAnalyzer, PatternAnalyzer
-
-# Handles either importer module or sub-file
+# Internal module imports with absolute/relative fallbacks
 try:
-    from importer import EurojackpotImporter
+    from src.database.db_manager import DBManager
 except ImportError:
-    from importer.eurojackpot_importer import EurojackpotImporter
+    from db_manager import DBManager
 
-# Predictor import
 try:
-    from predictors import ProbabilityPredictor
+    from src.analytics.backtester import Backtester
 except ImportError:
-    from predictors.probability_predictor import ProbabilityPredictor
+    from backtester import Backtester
+
+try:
+    from src.analytics.analyzers import FrequencyAnalyzer, PatternAnalyzer
+except ImportError:
+    from analyzers import FrequencyAnalyzer, PatternAnalyzer
+
+# Importer module imports
+try:
+    from src.importer.eurojackpot_importer import EurojackpotImporter
+except ImportError:
+    try:
+        from importer import EurojackpotImporter
+    except ImportError:
+        from importer.eurojackpot_importer import EurojackpotImporter
+
+# Predictor imports
+try:
+    from src.predictors.probability_predictor import ProbabilityPredictor
+except ImportError:
+    try:
+        from predictors import ProbabilityPredictor
+    except ImportError:
+        from predictors.probability_predictor import ProbabilityPredictor
 
 
 def _ensure_count(pool, count, default_range):
@@ -82,7 +103,7 @@ def run_pipeline():
     pattern_analyzer = PatternAnalyzer(db_manager=db)
     pattern_primary, pattern_euro = pattern_analyzer.analyze()
 
-    # Fixed: ProbabilityPredictor instantiation call based on constructor signature
+    # ProbabilityPredictor instantiation with fallback
     try:
         predictor = ProbabilityPredictor(db)
     except TypeError:

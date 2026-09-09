@@ -5,6 +5,7 @@ Database Manager Module for handling SQLite operations.
 import json
 import logging
 import sqlite3
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ class DBManager:
 
     def __init__(self, db_path="data/lottery.db"):
         self.db_path = db_path
+        self.initialize_database()
 
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path)
@@ -56,8 +58,7 @@ class DBManager:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "INSERT INTO draws (draw_date, primary_numbers,"
-                    " euro_numbers) VALUES (?, ?, ?)",
+                    "INSERT INTO draws (draw_date, primary_numbers, euro_numbers) VALUES (?, ?, ?)",
                     (
                         draw["draw_date"],
                         json.dumps(draw["primary_numbers"]),
@@ -71,6 +72,24 @@ class DBManager:
         except Exception as e:
             logger.error(f"Error inserting draw: {e}")
             return False
+
+    def get_all_draws(self) -> List[Dict[str, Any]]:
+        """Επιστρέφει όλες τις καταχωρημένες κληρώσεις αποσυσκευασμένες από JSON."""
+        draws = []
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT draw_date, primary_numbers, euro_numbers FROM draws ORDER BY draw_date ASC")
+                rows = cursor.fetchall()
+                for row in rows:
+                    draws.append({
+                        "draw_date": row["draw_date"],
+                        "primary_numbers": json.loads(row["primary_numbers"]),
+                        "euro_numbers": json.loads(row["euro_numbers"]),
+                    })
+        except Exception as e:
+            logger.error(f"Error fetching draws: {e}")
+        return draws
 
     def insert_prediction(self, prediction: dict) -> bool:
         """Εισαγωγή πρόβλεψης μοντέλου."""

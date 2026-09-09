@@ -1,6 +1,12 @@
 import sys
+import os
 import logging
 from datetime import datetime
+
+# Ensure src directory is in sys.path for top-level module resolution
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 # Configure logger
 logging.basicConfig(
@@ -10,47 +16,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Main")
 
-# --- Robust Imports ---
-# 1. Importer Module
-EurojackpotImporter = None
+# Internal module imports
+from db_manager import DBManager
+from backtester import Backtester
+from analyzers import FrequencyAnalyzer, PatternAnalyzer
+
+# Handles either importer module or sub-file
 try:
+    from importer import EurojackpotImporter
+except ImportError:
     from importer.eurojackpot_importer import EurojackpotImporter
-except ImportError:
-    try:
-        from importer import EurojackpotImporter
-    except ImportError:
-        try:
-            from importer.csv_importer import EurojackpotImporter
-        except ImportError:
-            logger.error("Could not locate EurojackpotImporter class in importer package.")
 
-# 2. Database Manager
-try:
-    from db_manager import DBManager
-except ImportError:
-    from database.db_manager import DBManager
-
-# 3. Backtester
-try:
-    from backtester import Backtester
-except ImportError:
-    from backtest.backtester import Backtester
-
-# 4. Analyzers
-try:
-    from analyzers import FrequencyAnalyzer, PatternAnalyzer
-except ImportError:
-    from analyzers.frequency import FrequencyAnalyzer
-    from analyzers.pattern import PatternAnalyzer
-
-# 5. Predictors
+# Predictor import
 try:
     from predictors import ProbabilityPredictor
 except ImportError:
-    try:
-        from predictors.probability_predictor import ProbabilityPredictor
-    except ImportError:
-        ProbabilityPredictor = None
+    from predictors.probability_predictor import ProbabilityPredictor
 
 
 def _ensure_count(pool, count, default_range):
@@ -64,32 +45,10 @@ def _ensure_count(pool, count, default_range):
     return sorted(result[:count])
 
 
-def instantiate_predictor(db):
-    """Dynamically instantiates ProbabilityPredictor matching its __init__ signature."""
-    if ProbabilityPredictor is None:
-        logger.warning("ProbabilityPredictor module not found. Skipping predictor step.")
-        return None
-
-    for attempt in [lambda: ProbabilityPredictor(db),
-                    lambda: ProbabilityPredictor(db=db),
-                    lambda: ProbabilityPredictor(db_manager=db),
-                    lambda: ProbabilityPredictor()]:
-        try:
-            return attempt()
-        except TypeError:
-            continue
-
-    logger.error("Failed to match ProbabilityPredictor initialization signature.")
-    return None
-
-
 def run_pipeline():
     logger.info("==================================================")
     logger.info("STARTING LOTTERY INTELLIGENCE PIPELINE")
     logger.info("==================================================")
-
-    if EurojackpotImporter is None:
-        raise ImportError("EurojackpotImporter could not be imported from src/importer.")
 
     # 1. Initialize Database & Importer
     db = DBManager()
@@ -123,11 +82,16 @@ def run_pipeline():
     pattern_analyzer = PatternAnalyzer(db_manager=db)
     pattern_primary, pattern_euro = pattern_analyzer.analyze()
 
-    prob_predictor = instantiate_predictor(db)
-    if prob_predictor and hasattr(prob_predictor, "predict"):
-        prob_primary, prob_euro = prob_predictor.predict()
-    else:
-        prob_primary, prob_euro = [], []
+    # Fixed: ProbabilityPredictor instantiation call based on constructor signature
+    try:
+        predictor = ProbabilityPredictor(db)
+    except TypeError:
+        try:
+            predictor = ProbabilityPredictor(db_manager=db)
+        except TypeError:
+            predictor = ProbabilityPredictor()
+
+    prob_primary, prob_euro = predictor.predict()
 
     # 7. Aggregate & Backfill Pools
     combined_primary = freq_primary + pattern_primary + prob_primary

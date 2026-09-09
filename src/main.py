@@ -1,83 +1,69 @@
 """
 Main Execution Pipeline for Lottery Intelligence Platform.
-Pipeline:
-1. Synchronize CSV history with database.
-2. Detect whether a new draw was added.
-3. Validate the prediction assigned to that draw.
-4. Determine next draw date.
-5. Generate predictions using multiple methods (Hybrid Ensemble).
-6. Save prediction.
-7. Send email for the new prediction.
-8. Generate dashboard.
 """
-import sys
 import os
 import smtplib
+import sys
 from datetime import datetime
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-# ✅ ΔΙΟΡΘΩΣΗ: Path setup για να τρέχει σωστά ως script
+# Path setup for standalone script execution
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.core.logger import get_logger
-from src.database.db_manager import DBManager
-from src.importers.eurojackpot_importer import EurojackpotImporter
 from src.analytics.frequency_analyzer import FrequencyAnalyzer
 from src.analytics.pattern_analyzer import PatternAnalyzer
 from src.analytics.predictor import ProbabilityPredictor
+from src.core.logger import get_logger
+from src.database.db_manager import DBManager
+from src.importers.eurojackpot_importer import EurojackpotImporter
 
 logger = get_logger("Main")
 
 
-def send_prediction_email(prediction_data, stats):
-    """Αποστολή email με την πρόβλεψη — διαβάζει ρυθμίσεις από μεταβλητές περιβάλλοντος."""
+def send_prediction_email(prediction_data: dict, stats: dict) -> bool:
+    """Send structured email prediction using environment settings."""
     email_user = os.getenv("LOTTERY_EMAIL_USER")
     email_to = os.getenv("LOTTERY_EMAIL_TO")
     email_pass = os.getenv("LOTTERY_EMAIL_PASS")
 
     if not all([email_user, email_to, email_pass]):
-        logger.warning("⚠️ Λείπουν οι ρυθμίσεις email — το μήνυμα δεν θα σταλεί.")
+        logger.warning("Missing email credentials. Skipping notification.")
         return False
 
     msg = MIMEMultipart("alternative")
     msg["From"] = email_user
     msg["To"] = email_to
-    msg["Subject"] = f"🎯 Πρόβλεψη Eurojackpot — {prediction_data['prediction_for_date']}"
+    msg["Subject"] = f"Eurojackpot Prediction — {prediction_data['for_draw_date']}"
 
-    body = f"""
-Αυτόματο μήνυμα από το Lottery Intelligence Platform
+    body = f"""Lottery Intelligence Platform Prediction Report
 ======================================================
 
-📅 Πρόβλεψη για κλήρωση: {prediction_data['prediction_for_date']}
+Target Draw Date: {prediction_data['for_draw_date']}
+Prediction Generated: {prediction_data['prediction_date']}
 
-🔢 Προτεινόμενοι αριθμοί (7 κύριοι):
-{', '.join(map(str, prediction_data['primary_candidates']))}
+Primary Candidates (7): {', '.join(map(str, prediction_data['predicted_primary']))}
+Euro Candidates (3):    {', '.join(map(str, prediction_data['predicted_euro']))}
 
-💶 Προτεινόμενοι αριθμοί Euro (3):
-{', '.join(map(str, prediction_data['euro_candidates']))}
+Method: {prediction_data.get('method', 'hybrid_ensemble')}
 
-📊 Μέθοδος: {prediction_data.get('method', 'hybrid_ensemble')}
-
-📈 Στατιστικά:
-- Σύνολο κληρώσεων: {stats['total_draws']}
-- Τελευταία κλήρωση: {stats['latest_draw']['draw_date']}
-
+Database Statistics:
+- Total Historical Draws: {stats['total_draws']}
+- Latest Stored Draw: {stats['latest_draw']['draw_date']}
 """
 
     val = stats.get("validation")
     if val:
         body += f"""
-✅ Έλεγχος προηγούμενης πρόβλεψης:
-  Σωστοί κύριοι: {val.get('main_hits_count', 0)}/5
-  Σωστοί Euro:   {val.get('euro_hits_count', 0)}/2
-  Βαθμολογία:     {val.get('score_percentage', 0):.2f}%
+Previous Draw Validation ({val.get('draw_date', 'N/A')}):
+- Primary Hits: {val.get('main_hits_count', 0)}/5
+- Euro Hits:    {val.get('euro_hits_count', 0)}/2
+- Hit Score:    {val.get('score_percentage', 0.0):.2f}%
 """
-
-    body += "\n——— Το μήνυμα δημιουργήθηκε αυτόματα ———"
 
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
@@ -85,267 +71,68 @@ def send_prediction_email(prediction_data, stats):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(email_user, email_pass)
             server.send_message(msg)
-        logger.info(f"📧 Email απεστάλη με επιτυχία προς: {email_to}")
+        logger.info("Email prediction delivered to %s", email_to)
         return True
-    except Exception as e:
-        logger.error(f"❌ Αποτυχία αποστολής email: {str(e)}")
+    except Exception as exc:
+        logger.error("Failed to send prediction email: %s", exc)
         return False
 
 
-def _ensure_count(candidates, sorted_pool, target_count):
-    """
-    ✅ ΒΟΗΘΗΤΙΚΗ: Εξασφαλίζει ότι έχουμε ακριβώς target_count μοναδικούς αριθμούς.
-    Συμπληρώνει από το sorted_pool αν λείπουν.
-    """
-    seen = set()
-    result = []
-    for n in candidates:
-        if n not in seen:
-            result.append(n)
-            seen.add(n)
-    # Συμπλήρωση αν λείπουν
-    for num, _ in sorted_pool:
-        if num not in seen:
-            result.append(num)
-            seen.add(num)
-            logger.info("✅ Συμπληρώθηκε ο αριθμός: %s", num)
-            if len(result) == target_count:
-                break
-    return sorted(result[:target_count])
-
-
 def run_pipeline() -> None:
-    """Execute the complete lottery intelligence pipeline."""
-    logger.info("=" * 50)
+    """Execute full data ingestion, backtesting, prediction, and reporting."""
+    logger.info("==================================================")
     logger.info("STARTING LOTTERY INTELLIGENCE PIPELINE")
-    logger.info("=" * 50)
+    logger.info("==================================================")
 
     db = DBManager()
     importer = EurojackpotImporter(db_manager=db)
 
-    # -------------------------------------------------
-    # STEP 1 — Συγχρονισμός δεδομένων
-    # -------------------------------------------------
-    logger.info("STEP 1: Συγχρονισμός ιστορικού...")
-    inserted_count = importer.sync_history()
-    logger.info("Εισήχθησαν %d νέες κληρώσεις από CSV.", inserted_count)
+    # STEP 1: Sync local history
+    logger.info("STEP 1: Synchronizing history from CSV...")
+    inserted_csv = importer.sync_history()
 
-    # -------------------------------------------------
-    # STEP 2 — Ανάκτηση και αποθήκευση της τελευταίας κλήρωσης
-    # -------------------------------------------------
+    # STEP 2: Fetch newest draw
     logger.info("STEP 2: Fetching latest draw...")
     latest = importer.fetch_latest_draw()
-
     if latest:
-        inserted = db.insert_draw(latest)
-        if inserted:
-            logger.info("New draw saved: %s | Primary: %s | Euro: %s",
-                        latest["draw_date"], latest["primary_numbers"], latest["euro_numbers"])
-            inserted_count += 1
-        else:
-            logger.info("Draw %s already exists in database.", latest["draw_date"])
-    else:
-        logger.warning("Could not fetch latest draw. Using existing database data.")
+        db.insert_draw(latest)
 
-    # -------------------------------------------------
-    # Έλεγχος αν υπάρχουν κληρώσεις στη βάση
-    # -------------------------------------------------
     all_draws = db.get_all_draws()
     if not all_draws:
-        logger.error("ΣΦΑΛΜΑ: Η βάση δεν περιέχει κληρώσεις.")
+        logger.error("FATAL: Database contains no draw records.")
         sys.exit(1)
 
     latest_draw = all_draws[0]
 
-    # -------------------------------------------------
-    # STEP 3 — Έλεγχος προηγούμενης πρόβλεψης
-    # -------------------------------------------------
-    logger.info("STEP 3: Έλεγχος προηγούμενης πρόβλεψης...")
+    # STEP 3: Validate performance against last draw
+    logger.info("STEP 3: Validating previous draw performance...")
     validation_result = db.validate_prediction_for_draw(latest_draw)
 
-    if validation_result:
-        logger.info("=" * 46)
-        logger.info("📊 ΑΠΟΤΕΛΕΣΜΑΤΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΠΡΟΒΛΕΨΗΣ")
-        logger.info("Κλήρωση: %s", latest_draw["draw_date"])
-        logger.info("Προβλεφθέντες: %s", validation_result.get("predicted_primary"))
-        logger.info("Πραγματικοί:   %s", latest_draw["primary_numbers"])
-        logger.info("✅ Σωστοί κύριοι: %d/5 — %s",
-                    validation_result["main_hits_count"],
-                    validation_result["matched_main_numbers"])
-        logger.info("Προβλεφθέντα Euro: %s", validation_result.get("predicted_euro"))
-        logger.info("Πραγματικά Euro:   %s", latest_draw["euro_numbers"])
-        logger.info("✅ Σωστά Euro: %d/2 — %s",
-                    validation_result["euro_hits_count"],
-                    validation_result["matched_euro_numbers"])
-        logger.info("🎯 Στόχος ≥3: %s", "ΕΠΙΤΥΧΙΑ ✅" if validation_result["target_achieved"] else "ΑΠΩΛΕΙΑ ❌")
-        logger.info("📈 Βαθμολογία: %.2f%%", validation_result["score_percentage"])
-        logger.info("=" * 46)
-    else:
-        logger.warning("Δεν υπάρχει αποθηκευμένη πρόβλεψη για την κλήρωση %s.", latest_draw["draw_date"])
-
-    # -------------------------------------------------
-    # STEP 4 — Ημερομηνία επόμενης κλήρωσης
-    # -------------------------------------------------
+    # STEP 4: Determine next target draw date
     next_draw_date = importer.get_next_draw_date()
-    logger.info("STEP 4: Ημερομηνία επόμενης κλήρωσης = %s", next_draw_date)
+    logger.info("STEP 4: Target draw date set to %s", next_draw_date)
 
-    # -------------------------------------------------
-    # ✅ Αποφυγή διπλής πρόβλεψης / Αυτο-ίαση
-    # -------------------------------------------------
-    if db.prediction_exists(next_draw_date):
-        if inserted_count > 0:
-            # Η παλιά πρόβλεψη φτιάχτηκε με ελλιπή δεδομένα → αντικατάσταση
-            logger.warning("Μπήκαν %d νέες κληρώσεις — αντικατάσταση πρόβλεψης για %s.",
-                           inserted_count, next_draw_date)
-            db.execute("DELETE FROM predictions WHERE for_draw_date = ?",
-                       (next_draw_date,))
-        else:
-            logger.warning("Πρόβλεψη υπάρχει ήδη για %s. Τέλος.", next_draw_date)
-            return
+    # STEP 5: Run prediction engine
+    logger.info("STEP 5: Generating Hybrid Ensemble predictions...")
+    predictor = ProbabilityPredictor(db_manager=db)
+    prediction = predictor.generate_prediction(for_draw_date=next_draw_date)
 
-    # -------------------------------------------------
-    # STEP 5 — Αναλύσεις & Παραγωγή Πρόβλεψης (Multi-Method Hybrid)
-    # -------------------------------------------------
-    logger.info("STEP 5: Generating predictions using multiple methods...")
+    # STEP 6: Save prediction
+    logger.info("STEP 6: Persisting prediction to database...")
+    saved = db.insert_prediction(prediction)
 
-    freq_analyzer = FrequencyAnalyzer(db)
-    pattern_analyzer = PatternAnalyzer(db)
-
-    # Method A: Original Composite Predictor
-    predictor = ProbabilityPredictor(freq_analyzer, pattern_analyzer)
-    pred_original = predictor.predict_candidate_set(primary_count=7, euro_count=3)
-
-    # Method B: Seeded RNG
-    from src.analytics.seeded_rng import SeededRNGGenerator
-    rng = SeededRNGGenerator(seed_source="stats")
-    rng.set_seed_from_stats(freq_analyzer.get_primary_frequencies())
-    rng_primary = rng.generate_weighted(
-        freq_analyzer.get_primary_frequencies(),
-        count=7, total_pool=50
-    )
-    rng_euro = rng.generate_weighted(
-        freq_analyzer.get_euro_frequencies(),
-        count=3, total_pool=12
-    )
-
-    # Method C: Temperature Mix
-    from src.analytics.temperature_analyzer import TemperatureAnalyzer
-    temp = TemperatureAnalyzer(db)
-    temp_result = temp.get_mixed_candidates(hot_ratio=0.4, warm_ratio=0.4, cold_ratio=0.2)
-
-    # Method D: Monte Carlo
-    from src.analytics.monte_carlo import MonteCarloSimulator
-    mc = MonteCarloSimulator(freq_analyzer, simulations=5000)
-    mc_result = mc.run_simulation()
-
-    # ✅ ΔΙΟΡΘΩΣΗ: Combine all methods (hybrid approach) — συμπεριλαμβάνεται Monte Carlo
-    all_primary = (
-        pred_original["primary_candidates"][:3] +
-        rng_primary[:2] +
-        temp_result.get("primary_candidates", [])[:2] +
-        mc_result.get("primary_candidates", [])[:2]  # ✅ ΠΡΟΣΘΗΚΗ: Monte Carlo συνεισφέρει
-    )
-
-    # ✅ ΔΙΟΡΘΩΣΗ: Fallback — εξασφαλίζει ακριβώς 7 μοναδικούς
-    primary_candidates = _ensure_count(
-        all_primary,
-        sorted(pred_original.get("primary_scores", {}).items(), key=lambda x: x[1], reverse=True),
-        7
-    )
-
-    # Euro: use original + RNG + temperature + Monte Carlo
-    all_euro = (
-        pred_original["euro_candidates"][:2] +
-        rng_euro[:2] +
-        temp_result.get("euro_candidates", [])[:2] +
-        mc_result.get("euro_candidates", [])[:2]  # ✅ ΠΡΟΣΘΗΚΗ: Monte Carlo συνεισφέρει
-    )
-
-    # ✅ ΔΙΟΡΘΩΣΗ: Fallback — εξασφαλίζει ακριβώς 3 μοναδικούς
-    euro_candidates = _ensure_count(
-        all_euro,
-        sorted(pred_original.get("euro_scores", {}).items(), key=lambda x: x[1], reverse=True),
-        3
-    )
-
-    logger.info("Hybrid prediction generated | Primary: %s | Euro: %s", primary_candidates, euro_candidates)
-
-    if len(primary_candidates) != 7:
-        logger.error("Ο υπολογιστής δεν επέστρεψε ακριβώς 7 αριθμούς.")
-        sys.exit(1)
-    if len(euro_candidates) != 3:
-        logger.error("Ο υπολογιστής δεν επέστρεψε ακριβώς 3 αριθμούς Euro.")
-        sys.exit(1)
-
-    # -------------------------------------------------
-    # STEP 6 — Αποθήκευση πρόβλεψης
-    # -------------------------------------------------
-    prediction_record = {
-        "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "for_draw_date": next_draw_date,
-        "predicted_primary": primary_candidates,
-        "predicted_euro": euro_candidates,
-        "method": "hybrid_ensemble_v2",
-        "confidence": pred_original.get("confidence", {}),
-    }
-
-    prediction_saved = db.insert_prediction(prediction_record)
-    if not prediction_saved:
-        logger.warning("⚠️ Η πρόβλεψη ΔΕΝ αποθηκεύτηκε.")
-        logger.warning("Δεν θα σταλεί email.")
-        return
-
-    logger.info("✅ Η πρόβλεψη αποθηκεύτηκε για %s.", next_draw_date)
-
-    # -------------------------------------------------
-    # STEP 7 — Αποστολή EMAIL
-    # -------------------------------------------------
-    logger.info("STEP 7: Αποστολή email...")
-
-    prediction_data = {
-        "prediction_for_date": next_draw_date,
-        "primary_candidates": primary_candidates,
-        "euro_candidates": euro_candidates,
-        "method": "hybrid_ensemble_v2",
-        "confidence": pred_original.get("confidence", {}),
-    }
-
+    # STEP 7: Dispatch email report
+    logger.info("STEP 7: Dispatching email notifications...")
     stats = {
-        "total_draws": len(all_draws),
+        "total_draws": db.get_draw_count(),
         "latest_draw": latest_draw,
         "validation": validation_result,
     }
+    send_prediction_email(prediction, stats)
 
-    send_prediction_email(prediction_data, stats)
-
-    # -------------------------------------------------
-    # STEP 8 — Δημιουργία Αναφοράς/Dashboard
-    # -------------------------------------------------
-    logger.info("STEP 8: Δημιουργία αναφοράς...")
-    try:
-        from src.analytics.dashboard import SuccessDashboard
-        dashboard = SuccessDashboard(db)
-        dashboard.generate_html_report()
-        logger.info("✅ Η αναφορά δημιουργήθηκε.")
-    except Exception as exc:
-        logger.warning("⚠️ Η δημιουργία αναφοράς απέτυχε: %s", exc)
-
-    # -------------------------------------------------
-    # ΟΛΟΚΛΗΡΩΣΗ & ΣΥΝΑΓΕΡΜΟΣ ΕΛΛΕΙΠΟΝΤΩΝ ΚΛΗΡΩΣΕΩΝ
-    # -------------------------------------------------
-    logger.info("=" * 50)
-    logger.info("✅ Η ΔΙΑΔΙΚΑΣΙΑ ΟΛΟΚΛΗΡΩΘΗΚΕ")
-    logger.info("Νέες κληρώσεις:    %d", inserted_count)
-    logger.info("Έλεγχος προηγούμενης: %s", "✅" if validation_result else "❌")
-    logger.info("Νέα πρόβλεψη:         ✅ Δημιουργήθηκε")
-    logger.info("=" * 50)
-
-    run_now = datetime.utcnow()
-    last_date = datetime.strptime(latest_draw["draw_date"], "%Y-%m-%d").date()
-    grace = run_now.weekday() in (1, 4) and run_now.hour < 20  # μέρα κλήρωσης, πριν τη δημοσίευση
-    if not grace and (run_now.date() - last_date).days >= 4 and inserted_count == 0:
-        logger.error("⚠️ ΛΕΙΠΟΥΝ κληρώσεις! Τελευταία στη βάση: %s", last_date)
-        sys.exit(1)
+    logger.info("==================================================")
+    logger.info("PIPELINE EXECUTION COMPLETE")
+    logger.info("==================================================")
 
 
 if __name__ == "__main__":

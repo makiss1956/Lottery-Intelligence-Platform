@@ -1,54 +1,117 @@
+"""
+Database Manager Module for handling SQLite operations.
+"""
+
+import json
+import logging
+import sqlite3
+
+logger = logging.getLogger(__name__)
 
 
+class DBManager:
 
-@pytest.fixture
-def test_db():
-    """Fixture που δημιουργεί τη βάση και όλους τους πίνακες στη μνήμη."""
-    return DBManager(db_path=":memory:")
+    def __init__(self, db_path="data/lottery.db"):
+        self.db_path = db_path
 
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-def test_insert_prediction_success(test_db):
-    prediction = {
-        "prediction_date": "2026-09-09",
-        "for_draw_date": "2026-09-11",
-        "model_name": "markov_chain_v1",
-        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
-        "predicted_euro": [3, 8, 9],
-    }
-    assert test_db.insert_prediction(prediction) is True
+    def initialize_database(self):
+        """Δημιουργία των απαραίτητων πινάκων στη βάση δεδομένων."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
 
+            # Πίνακας αποτελεσμάτων κληρώσεων
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS draws (
+                    draw_date TEXT PRIMARY KEY,
+                    primary_numbers TEXT NOT NULL,
+                    euro_numbers TEXT NOT NULL
+                )
+            """
+            )
 
-def test_insert_prediction_duplicate(test_db):
-    prediction = {
-        "prediction_date": "2026-09-09",
-        "for_draw_date": "2026-09-11",
-        "model_name": "markov_chain_v1",
-        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
-        "predicted_euro": [3, 8, 9],
-    }
-    assert test_db.insert_prediction(prediction) is True
-    assert test_db.insert_prediction(prediction) is False
+            # Πίνακας προβλέψεων μοντέλων
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prediction_date TEXT NOT NULL,
+                    for_draw_date TEXT UNIQUE NOT NULL,
+                    model_name TEXT NOT NULL,
+                    predicted_primary TEXT NOT NULL,
+                    predicted_euro TEXT NOT NULL
+                )
+            """
+            )
+            conn.commit()
 
+    def insert_draw(self, draw: dict) -> bool:
+        """Εισαγωγή αποτελέσματος κλήρωσης."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO draws (draw_date, primary_numbers,"
+                    " euro_numbers) VALUES (?, ?, ?)",
+                    (
+                        draw["draw_date"],
+                        json.dumps(draw["primary_numbers"]),
+                        json.dumps(draw["euro_numbers"]),
+                    ),
+                )
+                conn.commit()
+                return True
+        except sqlite3.IntegrityError:
+            return False
+        except Exception as e:
+            logger.error(f"Error inserting draw: {e}")
+            return False
 
-def test_prediction_exists(test_db):
-    draw_date = "2026-09-11"
-    assert test_db.prediction_exists(draw_date) is False
+    def insert_prediction(self, prediction: dict) -> bool:
+        """Εισαγωγή πρόβλεψης μοντέλου."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO predictions 
+                    (prediction_date, for_draw_date, model_name, predicted_primary, predicted_euro)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        prediction["prediction_date"],
+                        prediction["for_draw_date"],
+                        prediction["model_name"],
+                        json.dumps(prediction["predicted_primary"]),
+                        json.dumps(prediction["predicted_euro"]),
+                    ),
+                )
+                conn.commit()
+                return True
+        except sqlite3.IntegrityError:
+            return False
+        except Exception as e:
+            logger.error(f"Error inserting prediction: {e}")
+            return False
 
-    test_db.insert_prediction({
-        "prediction_date": "2026-09-09",
-        "for_draw_date": draw_date,
-        "model_name": "lstm_model",
-        "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
-        "predicted_euro": [1, 2, 3],
-    })
-    assert test_db.prediction_exists(draw_date) is True
+    def prediction_exists(self, draw_date: str) -> bool:
+        """Έλεγχος αν υπάρχει πρόβλεψη για συγκεκριμένη κλήρωση."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM predictions WHERE for_draw_date = ?",
+                (draw_date,),
+            )
+            return cursor.fetchone() is not None
 
-
-def test_insert_draw_success(test_db):
-    draw = {
-        "draw_date": "2026-09-11",
-        "primary_numbers": [5, 12, 23, 34, 45],
-        "euro_numbers": [3, 8],
-    }
-    assert test_db.insert_draw(draw) is True
-    assert test_db.get_draw_count() == 1
+    def get_draw_count(self) -> int:
+        """Επιστρέφει το πλήθος των καταχωρημένων κληρώσεων."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM draws")
+            return cursor.fetchone()[0]

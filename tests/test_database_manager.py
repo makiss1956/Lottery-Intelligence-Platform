@@ -4,9 +4,19 @@ from src.database.db_manager import DBManager
 
 @pytest.fixture
 def test_db():
-    """Fixture που αρχικοποιεί το DBManager instance."""
+    """Fixture που αρχικοποιεί το DBManager instance και δημιουργεί τους πίνακες."""
     db_mgr = DBManager(db_path=":memory:")  # In-memory database για τεστ
-    # Αφαιρέθηκε η κλήση σε init_db() που δεν υπάρχει
+    
+    # Καλούμε τη μέθοδο δημιουργίας πινάκων για να φτιαχτεί ο πίνακας predictions.
+    # Αν η κλάση σας χρησιμοποιεί διαφορετικό όνομα (π.χ. create_tables ή setup_database),
+    # βεβαιωθείτε ότι καλείται η αντίστοιχη μέθοδος.
+    if hasattr(db_mgr, "create_tables"):
+        db_mgr.create_tables()
+    elif hasattr(db_mgr, "setup_database"):
+        db_mgr.setup_database()
+    elif hasattr(db_mgr, "_create_tables"):
+        db_mgr._create_tables()
+        
     return db_mgr
 
 

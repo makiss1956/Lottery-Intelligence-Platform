@@ -250,14 +250,14 @@ class DBManager:
         predicted_primary = prediction.get("predicted_primary", [])
         predicted_euro = prediction.get("predicted_euro", [])
 
-        # ✅ Συμβατότητα: δέχεται model_name και το μετατρέπει σε method
+        # Συμβατότητα: δέχεται model_name και το μετατρέπει σε method
         method_name = prediction.get("method") or prediction.get("model_name", "")
 
         if not prediction_date or not for_draw_date:
             logger.error("Prediction date or target draw date missing.")
             return False
 
-        # ✅ Αποδοχή και των δύο μορφών: 7+3 (δοκιμές) και 5+2 (πραγματικό)
+        # Αποδοχή και των δύο μορφών: 7+3 (δοκιμές) και 5+2 (πραγματικό)
         if not (
             (len(predicted_primary) == 7 and len(predicted_euro) == 3) or
             (len(predicted_primary) == 5 and len(predicted_euro) == 2)
@@ -292,7 +292,7 @@ class DBManager:
                         for_draw_date,
                         ",".join(map(str, sorted(predicted_primary))),
                         ",".join(map(str, sorted(predicted_euro))),
-                        method_name,  # ✅ Εδώ περνά σωστά το όνομα
+                        method_name,
                         confidence_string,
                     ),
                 )
@@ -348,7 +348,7 @@ class DBManager:
                         "predicted_euro": self._parse_num_string(
                             row["predicted_euro"]
                         ),
-                        "model_name": row["method"],  # ✅ Συμβατότητα με δοκιμές
+                        "model_name": row["method"],
                         "method": row["method"],
                         "confidence": confidence,
                     }
@@ -390,7 +390,7 @@ class DBManager:
                 "predicted_euro": self._parse_num_string(
                     row["predicted_euro"]
                 ),
-                "model_name": row["method"],  # ✅ Συμβατότητα
+                "model_name": row["method"],
                 "method": row["method"],
                 "confidence": confidence,
             }
@@ -412,6 +412,23 @@ class DBManager:
         if prediction is None:
             logger.info("No prediction found for draw %s.", draw_date)
             return {}
+
+        actual_primary = actual_draw.get("primary_numbers", [])
+        actual_euro = actual_draw.get("euro_numbers", [])
+
+        # Διαχείριση περίπτωσης όπου η κλήρωση είναι κενή
+        if not actual_primary and not actual_euro:
+            logger.warning("Actual draw contains no numbers for date %s.", draw_date)
+            return {
+                "prediction_id": prediction["id"],
+                "prediction_date": prediction["prediction_date"],
+                "predicted_primary": prediction["predicted_primary"],
+                "predicted_euro": prediction["predicted_euro"],
+                "main_hits_count": 0,
+                "euro_hits_count": 0,
+                "target_achieved": False,
+                "error": "Empty draw numbers"
+            }
 
         from src.analytics.backtester import Backtester
 

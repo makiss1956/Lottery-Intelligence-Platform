@@ -5,24 +5,31 @@ from src.database.db_manager import DBManager
 @pytest.fixture
 def test_db():
     """
-    Fixture που αρχικοποιεί ένα in-memory SQLite DBManager instance
-    και δημιουργεί τους απαιτούμενους πίνακες.
+    Fixture που αρχικοποιεί ένα DBManager instance 
+    και εξασφαλίζει τη δημιουργία του schema της βάσης.
     """
     db_mgr = DBManager(db_path=":memory:")
-    if hasattr(db_mgr, "create_tables"):
+    
+    # Εκτέλεση της μεθόδου δημιουργίας πινάκων ανάλογα με το όνομά της στο DBManager
+    if hasattr(db_mgr, "create_schema"):
+        db_mgr.create_schema()
+    elif hasattr(db_mgr, "_create_tables"):
+        db_mgr._create_tables()
+    elif hasattr(db_mgr, "create_tables"):
         db_mgr.create_tables()
     elif hasattr(db_mgr, "init_db"):
         db_mgr.init_db()
+        
     return db_mgr
 
 
 def test_insert_prediction_success(test_db):
-    """Έλεγχος επιτυχούς εισαγωγής νέας πρόβλεψης."""
+    """Έλεγχος επιτυχούς εισαγωγής νέας πρόβλεψης με 7 κύριους αριθμούς."""
     prediction = {
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
         "model_name": "markov_chain_v1",
-        "predicted_primary": [5, 12, 23, 34, 45],
+        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 9]
     }
     
@@ -36,7 +43,7 @@ def test_insert_prediction_duplicate(test_db):
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
         "model_name": "markov_chain_v1",
-        "predicted_primary": [5, 12, 23, 34, 45],
+        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 9]
     }
     
@@ -57,7 +64,7 @@ def test_prediction_exists(test_db):
         "prediction_date": "2026-09-09",
         "for_draw_date": draw_date,
         "model_name": "lstm_model",
-        "predicted_primary": [1, 2, 3, 4, 5],
+        "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
         "predicted_euro": [1, 2]
     })
     
@@ -65,10 +72,10 @@ def test_prediction_exists(test_db):
 
 
 def test_validate_prediction_for_draw_full_match(test_db):
-    """Έλεγχος επαλήθευσης πρόβλεψης με πλήρη επιτυχία 5+2."""
+    """Έλεγχος επαλήθευσης πρόβλεψης."""
     actual_draw = {
         "draw_date": "2026-09-11",
-        "primary_numbers": [5, 12, 23, 34, 45],
+        "primary_numbers": [5, 12, 23, 34, 45, 46, 47],
         "euro_numbers": [3, 9]
     }
     
@@ -76,7 +83,7 @@ def test_validate_prediction_for_draw_full_match(test_db):
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
         "model_name": "oracle_v1",
-        "predicted_primary": [5, 12, 23, 34, 45],
+        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
         "predicted_euro": [3, 9]
     })
     
@@ -96,7 +103,7 @@ def test_validate_prediction_for_draw_partial_match(test_db):
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
         "model_name": "stats_engine",
-        "predicted_primary": [10, 20, 30, 1, 2],
+        "predicted_primary": [10, 20, 30, 1, 2, 3, 4],
         "predicted_euro": [1, 12]
     })
     
@@ -116,7 +123,7 @@ def test_validate_prediction_missing_draw(test_db):
         "prediction_date": "2026-09-09",
         "for_draw_date": "2026-09-11",
         "model_name": "orphan_prediction",
-        "predicted_primary": [1, 2, 3, 4, 5],
+        "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
         "predicted_euro": [1, 2]
     })
     

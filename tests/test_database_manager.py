@@ -4,10 +4,8 @@ from src.database.db_manager import DBManager
 
 @pytest.fixture
 def test_db():
-    """Fixture που δημιουργεί τη βάση και ΟΛΟΥΣ τους πίνακες."""
+    """Fixture που δημιουργεί τη βάση και ΟΛΟΥΣ τους πίνακες στη μνήμη."""
     db_mgr = DBManager(db_path=":memory:")
-    # Με το :memory: κάθε σύνδεσμος είναι ανεξάρτητος
-    # Η _init_db καλείται ήδη από τον __init__
     return db_mgr
 
 
@@ -63,8 +61,8 @@ def test_validate_prediction_for_draw_full_match(test_db):
     """Έλεγχος επαλήθευσης πρόβλεψης."""
     actual_draw = {
         "draw_date": "2026-09-11",
-        "primary_numbers": [5, 12, 23, 34, 45, 46, 47],
-        "euro_numbers": [3, 8, 9]
+        "primary_numbers": [5, 12, 23, 34, 45],
+        "euro_numbers": [3, 8]
     }
 
     test_db.insert_prediction({
@@ -77,14 +75,15 @@ def test_validate_prediction_for_draw_full_match(test_db):
 
     result = test_db.validate_prediction_for_draw(actual_draw)
     assert result is not None
+    assert isinstance(result, dict)
 
 
 def test_validate_prediction_for_draw_partial_match(test_db):
     """Έλεγχος επαλήθευσης πρόβλεψης με μερική επιτυχία."""
     actual_draw = {
         "draw_date": "2026-09-11",
-        "primary_numbers": [10, 20, 30, 40, 50, 6, 7],
-        "euro_numbers": [1, 2, 10]
+        "primary_numbers": [10, 20, 30, 40, 50],
+        "euro_numbers": [1, 2]
     }
 
     test_db.insert_prediction({
@@ -97,6 +96,7 @@ def test_validate_prediction_for_draw_partial_match(test_db):
 
     result = test_db.validate_prediction_for_draw(actual_draw)
     assert result is not None
+    assert isinstance(result, dict)
 
 
 def test_validate_prediction_missing_draw(test_db):
@@ -116,4 +116,4 @@ def test_validate_prediction_missing_draw(test_db):
     })
 
     result = test_db.validate_prediction_for_draw(empty_draw)
-    assert result is not None or result == {}
+    assert isinstance(result, dict)

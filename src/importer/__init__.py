@@ -1,1 +1,1 @@
-
+from .eurojackpot_importer import EurojackpotImporter

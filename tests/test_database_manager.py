@@ -5,8 +5,8 @@ from src.database.db_manager import DBManager
 @pytest.fixture
 def test_db():
     """Fixture που αρχικοποιεί το DBManager instance."""
-    db_mgr = DBManager(db_path=":memory:")
-    db_mgr.init_db()
+    db_mgr = DBManager(db_path=":memory:")  # In-memory database για τεστ
+    # Αφαιρέθηκε η κλήση σε init_db() που δεν υπάρχει
     return db_mgr
 
 

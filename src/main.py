@@ -2,20 +2,6 @@ import sys
 import logging
 from datetime import datetime
 
-from importer import EurojackpotImporter
-from db_manager import DBManager
-from backtester import Backtester
-from analyzers import FrequencyAnalyzer, PatternAnalyzer
-
-# Import predictors directly or handle flexible initializations
-try:
-    from predictors import ProbabilityPredictor
-except ImportError:
-    try:
-        from probability_predictor import ProbabilityPredictor
-    except ImportError:
-        ProbabilityPredictor = None
-
 # Configure logger
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +9,48 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("Main")
+
+# --- Robust Imports ---
+# 1. Importer Module
+EurojackpotImporter = None
+try:
+    from importer.eurojackpot_importer import EurojackpotImporter
+except ImportError:
+    try:
+        from importer import EurojackpotImporter
+    except ImportError:
+        try:
+            from importer.csv_importer import EurojackpotImporter
+        except ImportError:
+            logger.error("Could not locate EurojackpotImporter class in importer package.")
+
+# 2. Database Manager
+try:
+    from db_manager import DBManager
+except ImportError:
+    from database.db_manager import DBManager
+
+# 3. Backtester
+try:
+    from backtester import Backtester
+except ImportError:
+    from backtest.backtester import Backtester
+
+# 4. Analyzers
+try:
+    from analyzers import FrequencyAnalyzer, PatternAnalyzer
+except ImportError:
+    from analyzers.frequency import FrequencyAnalyzer
+    from analyzers.pattern import PatternAnalyzer
+
+# 5. Predictors
+try:
+    from predictors import ProbabilityPredictor
+except ImportError:
+    try:
+        from predictors.probability_predictor import ProbabilityPredictor
+    except ImportError:
+        ProbabilityPredictor = None
 
 
 def _ensure_count(pool, count, default_range):
@@ -42,33 +70,26 @@ def instantiate_predictor(db):
         logger.warning("ProbabilityPredictor module not found. Skipping predictor step.")
         return None
 
-    # Try standard initialization parameter variations
-    try:
-        return ProbabilityPredictor(db)
-    except TypeError:
-        pass
+    for attempt in [lambda: ProbabilityPredictor(db),
+                    lambda: ProbabilityPredictor(db=db),
+                    lambda: ProbabilityPredictor(db_manager=db),
+                    lambda: ProbabilityPredictor()]:
+        try:
+            return attempt()
+        except TypeError:
+            continue
 
-    try:
-        return ProbabilityPredictor(db=db)
-    except TypeError:
-        pass
-
-    try:
-        return ProbabilityPredictor(db_manager=db)
-    except TypeError:
-        pass
-
-    try:
-        return ProbabilityPredictor()
-    except TypeError as e:
-        logger.error(f"Failed to instantiate ProbabilityPredictor: {e}")
-        raise
+    logger.error("Failed to match ProbabilityPredictor initialization signature.")
+    return None
 
 
 def run_pipeline():
     logger.info("==================================================")
     logger.info("STARTING LOTTERY INTELLIGENCE PIPELINE")
     logger.info("==================================================")
+
+    if EurojackpotImporter is None:
+        raise ImportError("EurojackpotImporter could not be imported from src/importer.")
 
     # 1. Initialize Database & Importer
     db = DBManager()
@@ -95,15 +116,13 @@ def run_pipeline():
 
     # 6. Run Ensemble Prediction Engines
     logger.info("STEP 5: Generating Hybrid Ensemble predictions...")
-    
-    # Run Analyzers
+
     freq_analyzer = FrequencyAnalyzer(db_manager=db)
     freq_primary, freq_euro = freq_analyzer.analyze()
 
     pattern_analyzer = PatternAnalyzer(db_manager=db)
     pattern_primary, pattern_euro = pattern_analyzer.analyze()
 
-    # Run Probability Predictor with compatible signature
     prob_predictor = instantiate_predictor(db)
     if prob_predictor and hasattr(prob_predictor, "predict"):
         prob_primary, prob_euro = prob_predictor.predict()

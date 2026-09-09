@@ -1,12 +1,17 @@
+"""
+Unit tests for DBManager.
+"""
+
 import pytest
 from src.database.db_manager import DBManager
 
 
 @pytest.fixture
-def test_db():
-    """Fixture που αρχικοποιεί μια προσωρινή βάση δεδομένων στη μνήμη για τις δοκιμές."""
-    db = DBManager(db_path=":memory:")
-    return db
+def test_db(tmp_path):
+    """Fixture που παρέχει μια προσωρινή βάση δεδομένων σε αρχείο."""
+    db_file = tmp_path / "test_db_manager.db"
+    db_mgr = DBManager(db_path=str(db_file))
+    return db_mgr
 
 
 def test_insert_prediction_success(test_db):
@@ -31,6 +36,7 @@ def test_insert_prediction_duplicate(test_db):
         "predicted_euro": [3, 8, 9],
     }
     assert test_db.insert_prediction(prediction) is True
+    # Η δεύτερη εισαγωγή με το ίδιο for_draw_date πρέπει να αποτύχει
     assert test_db.insert_prediction(prediction) is False
 
 
@@ -39,13 +45,14 @@ def test_prediction_exists(test_db):
     draw_date = "2026-09-11"
     assert test_db.prediction_exists(draw_date) is False
 
-    test_db.insert_prediction({
+    prediction = {
         "prediction_date": "2026-09-09",
         "for_draw_date": draw_date,
-        "model_name": "lstm_model",
-        "predicted_primary": [1, 2, 3, 4, 5, 6, 7],
-        "predicted_euro": [1, 2, 3],
-    })
+        "model_name": "markov_chain_v1",
+        "predicted_primary": [5, 12, 23, 34, 45, 46, 47],
+        "predicted_euro": [3, 8, 9],
+    }
+    test_db.insert_prediction(prediction)
     assert test_db.prediction_exists(draw_date) is True
 
 

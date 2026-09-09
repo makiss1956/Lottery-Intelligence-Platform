@@ -31,10 +31,15 @@ try:
 except ImportError:
     from backtester import Backtester
 
+# Import Analyzers from individual files or composite module
 try:
-    from src.analytics.analyzers import FrequencyAnalyzer, PatternAnalyzer
+    from src.analytics.frequency_analyzer import FrequencyAnalyzer
+    from src.analytics.pattern_analyzer import PatternAnalyzer
 except ImportError:
-    from analyzers import FrequencyAnalyzer, PatternAnalyzer
+    try:
+        from src.analytics.analyzers import FrequencyAnalyzer, PatternAnalyzer
+    except ImportError:
+        from analyzers import FrequencyAnalyzer, PatternAnalyzer
 
 # Importer module imports
 try:

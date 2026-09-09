@@ -1,4 +1,3 @@
-import pytest
 from src.database.db_manager import DBManager
 
 

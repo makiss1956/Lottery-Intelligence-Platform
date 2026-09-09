@@ -1,6 +1,5 @@
 """
 Database Manager for Lottery Intelligence Platform.
-
 Handles:
 - Eurojackpot draw storage
 - Prediction storage
@@ -8,14 +7,11 @@ Handles:
 - SQLite initialization
 - Duplicate prevention
 """
-
 import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from src.core.logger import get_logger
-
 
 logger = get_logger("DBManager")
 
@@ -31,7 +27,8 @@ class DBManager:
             self.db_path = str(db_dir / "lottery.db")
         else:
             self.db_path = db_path
-
+        
+        # Πάντα δημιουργία πινάκων κατά την εκκίνηση
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -40,20 +37,15 @@ class DBManager:
             self.db_path,
             timeout=30.0
         )
-
         conn.row_factory = sqlite3.Row
-
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
-
         return conn
 
     def _init_db(self) -> None:
         """Create required database tables and indexes."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS eurojackpot_draws (
@@ -63,7 +55,6 @@ class DBManager:
                 )
                 """
             )
-
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS predictions (
@@ -77,8 +68,7 @@ class DBManager:
                 )
                 """
             )
-
-            # Prevent more than one prediction for the same draw.
+            # Μοναδική πρόβλεψη ανά κλήρωση
             cursor.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS
@@ -86,9 +76,7 @@ class DBManager:
                 ON predictions(for_draw_date)
                 """
             )
-
             conn.commit()
-
         logger.info("Database initialized: %s", self.db_path)
 
     def initialize_database(self) -> None:
@@ -100,7 +88,6 @@ class DBManager:
         """Convert '1,2,3' into [1, 2, 3]."""
         if not num_str:
             return []
-
         return [
             int(value.strip())
             for value in num_str.split(",")
@@ -110,12 +97,10 @@ class DBManager:
     def insert_draw(self, draw: Dict[str, Any]) -> bool:
         """
         Insert a draw.
-
         Returns:
             True  -> new draw inserted
             False -> draw already exists or invalid
         """
-
         primary = draw.get("primary_numbers", [])
         euro = draw.get("euro_numbers", [])
         draw_date = draw.get("draw_date")
@@ -135,7 +120,6 @@ class DBManager:
         if len(set(primary)) != 5:
             logger.error("Duplicate primary numbers in draw.")
             return False
-
         if len(set(euro)) != 2:
             logger.error("Duplicate Euro numbers in draw.")
             return False
@@ -143,65 +127,36 @@ class DBManager:
         if not all(1 <= n <= 50 for n in primary):
             logger.error("Primary number outside 1-50.")
             return False
-
         if not all(1 <= n <= 12 for n in euro):
             logger.error("Euro number outside 1-12.")
             return False
 
-        primary_str = ",".join(
-            map(str, sorted(primary))
-        )
-
-        euro_str = ",".join(
-            map(str, sorted(euro))
-        )
+        primary_str = ",".join(map(str, sorted(primary)))
+        euro_str = ",".join(map(str, sorted(euro)))
 
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-
                 cursor.execute(
                     """
                     INSERT OR IGNORE INTO eurojackpot_draws
-                    (
-                        draw_date,
-                        primary_numbers,
-                        euro_numbers
-                    )
+                    (draw_date, primary_numbers, euro_numbers)
                     VALUES (?, ?, ?)
                     """,
-                    (
-                        draw_date,
-                        primary_str,
-                        euro_str,
-                    ),
+                    (draw_date, primary_str, euro_str),
                 )
-
                 conn.commit()
-
                 inserted = cursor.rowcount > 0
-
                 if inserted:
                     logger.info(
                         "NEW DRAW INSERTED: %s | %s | %s",
-                        draw_date,
-                        primary_str,
-                        euro_str,
+                        draw_date, primary_str, euro_str
                     )
                 else:
-                    logger.info(
-                        "Draw already exists: %s",
-                        draw_date,
-                    )
-
+                    logger.info("Draw already exists: %s", draw_date)
                 return inserted
-
         except sqlite3.Error as exc:
-            logger.error(
-                "Failed to insert draw %s: %s",
-                draw_date,
-                exc,
-            )
+            logger.error("Failed to insert draw %s: %s", draw_date, exc)
             return False
 
     def _fetch_draws_query(
@@ -210,52 +165,34 @@ class DBManager:
         params: tuple = (),
     ) -> List[Dict[str, Any]]:
         """Execute draw query and return normalized dictionaries."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
-
             rows = cursor.fetchall()
-
             return [
                 {
                     "draw_date": row["draw_date"],
-                    "primary_numbers": self._parse_num_string(
-                        row["primary_numbers"]
-                    ),
-                    "euro_numbers": self._parse_num_string(
-                        row["euro_numbers"]
-                    ),
+                    "primary_numbers": self._parse_num_string(row["primary_numbers"]),
+                    "euro_numbers": self._parse_num_string(row["euro_numbers"]),
                 }
                 for row in rows
             ]
 
     def get_all_draws(self) -> List[Dict[str, Any]]:
         """Return all draws newest first."""
-
         return self._fetch_draws_query(
             """
-            SELECT
-                draw_date,
-                primary_numbers,
-                euro_numbers
+            SELECT draw_date, primary_numbers, euro_numbers
             FROM eurojackpot_draws
             ORDER BY draw_date DESC
             """
         )
 
-    def get_latest_draws(
-        self,
-        limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    def get_latest_draws(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Return latest draws."""
-
         return self._fetch_draws_query(
             """
-            SELECT
-                draw_date,
-                primary_numbers,
-                euro_numbers
+            SELECT draw_date, primary_numbers, euro_numbers
             FROM eurojackpot_draws
             ORDER BY draw_date DESC
             LIMIT ?
@@ -265,230 +202,141 @@ class DBManager:
 
     def get_draw_count(self) -> int:
         """Return total number of stored draws."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT COUNT(*) FROM eurojackpot_draws"
-            )
-
+            cursor.execute("SELECT COUNT(*) FROM eurojackpot_draws")
             return int(cursor.fetchone()[0])
 
-    def get_draw(
-        self,
-        draw_date: str,
-    ) -> Optional[Dict[str, Any]]:
+    def get_draw(self, draw_date: str) -> Optional[Dict[str, Any]]:
         """Return one draw by date."""
-
         results = self._fetch_draws_query(
             """
-            SELECT
-                draw_date,
-                primary_numbers,
-                euro_numbers
+            SELECT draw_date, primary_numbers, euro_numbers
             FROM eurojackpot_draws
             WHERE draw_date = ?
             """,
             (draw_date,),
         )
-
         return results[0] if results else None
 
-    def execute(
-        self,
-        sql: str,
-        parameters: tuple = (),
-    ) -> None:
+    def execute(self, sql: str, parameters: tuple = ()) -> None:
         """Execute arbitrary SQL."""
-
         with self._get_connection() as conn:
             conn.execute(sql, parameters)
             conn.commit()
 
-    def prediction_exists(
-        self,
-        for_draw_date: str,
-    ) -> bool:
+    def prediction_exists(self, for_draw_date: str) -> bool:
         """Return True if a prediction already exists."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
             cursor.execute(
                 """
-                SELECT 1
-                FROM predictions
+                SELECT 1 FROM predictions
                 WHERE for_draw_date = ?
                 LIMIT 1
                 """,
                 (for_draw_date,),
             )
-
             return cursor.fetchone() is not None
 
-    def insert_prediction(
-        self,
-        prediction: Dict[str, Any],
-    ) -> bool:
+    def insert_prediction(self, prediction: Dict[str, Any]) -> bool:
         """
         Insert one prediction.
-
         A draw can have only one prediction.
+        Δέχεται και 'model_name' το οποίο μετατρέπεται σε 'method'.
         """
-
         prediction_date = prediction.get("prediction_date")
         for_draw_date = prediction.get("for_draw_date")
+        predicted_primary = prediction.get("predicted_primary", [])
+        predicted_euro = prediction.get("predicted_euro", [])
 
-        predicted_primary = prediction.get(
-            "predicted_primary",
-            [],
-        )
-
-        predicted_euro = prediction.get(
-            "predicted_euro",
-            [],
-        )
+        # ✅ Συμβατότητα: δέχεται model_name και το μετατρέπει σε method
+        method_name = prediction.get("method") or prediction.get("model_name", "")
 
         if not prediction_date or not for_draw_date:
+            logger.error("Prediction date or target draw date missing.")
+            return False
+
+        # ✅ Αποδοχή και των δύο μορφών: 7+3 (δοκιμές) και 5+2 (πραγματικό)
+        if not (
+            (len(predicted_primary) == 7 and len(predicted_euro) == 3) or
+            (len(predicted_primary) == 5 and len(predicted_euro) == 2)
+        ):
             logger.error(
-                "Prediction date or target draw date missing."
+                "Prediction must have 7+3 or 5+2 numbers. Got: %s+%s",
+                len(predicted_primary), len(predicted_euro)
             )
             return False
 
-        if len(predicted_primary) != 7:
-            logger.error(
-                "Prediction must contain exactly 7 primary numbers."
-            )
-            return False
-
-        if len(predicted_euro) != 3:
-            logger.error(
-                "Prediction must contain exactly 3 Euro numbers."
-            )
-            return False
-
-        confidence_value = prediction.get(
-            "confidence",
-            {},
-        )
-
+        confidence_value = prediction.get("confidence", {})
         if isinstance(confidence_value, (dict, list)):
-            confidence_string = json.dumps(
-                confidence_value,
-                ensure_ascii=False,
-            )
+            confidence_string = json.dumps(confidence_value, ensure_ascii=False)
         else:
             confidence_string = str(confidence_value)
 
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-
                 cursor.execute(
                     """
                     INSERT OR IGNORE INTO predictions
                     (
-                        prediction_date,
-                        for_draw_date,
-                        predicted_primary,
-                        predicted_euro,
-                        method,
-                        confidence
+                        prediction_date, for_draw_date,
+                        predicted_primary, predicted_euro,
+                        method, confidence
                     )
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         prediction_date,
                         for_draw_date,
-                        ",".join(
-                            map(
-                                str,
-                                sorted(predicted_primary),
-                            )
-                        ),
-                        ",".join(
-                            map(
-                                str,
-                                sorted(predicted_euro),
-                            )
-                        ),
-                        prediction.get("method", ""),
+                        ",".join(map(str, sorted(predicted_primary))),
+                        ",".join(map(str, sorted(predicted_euro))),
+                        method_name,  # ✅ Εδώ περνά σωστά το όνομα
                         confidence_string,
                     ),
                 )
-
                 conn.commit()
-
                 inserted = cursor.rowcount > 0
-
                 if inserted:
-                    logger.info(
-                        "NEW PREDICTION SAVED for %s",
-                        for_draw_date,
-                    )
+                    logger.info("NEW PREDICTION SAVED for %s", for_draw_date)
                 else:
                     logger.warning(
-                        "Prediction already exists for %s. "
-                        "No duplicate created.",
+                        "Prediction already exists for %s. No duplicate created.",
                         for_draw_date,
                     )
-
                 return inserted
-
         except sqlite3.IntegrityError as exc:
             logger.warning(
-                "Prediction already exists for %s: %s",
-                for_draw_date,
-                exc,
+                "Prediction already exists for %s: %s", for_draw_date, exc
             )
             return False
-
         except sqlite3.Error as exc:
-            logger.error(
-                "Failed to insert prediction: %s",
-                exc,
-            )
+            logger.error("Failed to insert prediction: %s", exc)
             return False
 
-    def get_predictions(
-        self,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    def get_predictions(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Return prediction history."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
             cursor.execute(
                 """
-                SELECT *
-                FROM predictions
+                SELECT * FROM predictions
                 ORDER BY prediction_date DESC
                 LIMIT ?
                 """,
                 (limit,),
             )
-
             rows = cursor.fetchall()
-
             result: List[Dict[str, Any]] = []
-
             for row in rows:
                 raw_confidence = row["confidence"]
-
                 try:
                     confidence = (
-                        json.loads(raw_confidence)
-                        if raw_confidence
-                        else {}
+                        json.loads(raw_confidence) if raw_confidence else {}
                     )
-                except (
-                    json.JSONDecodeError,
-                    TypeError,
-                ):
+                except (json.JSONDecodeError, TypeError):
                     confidence = raw_confidence
-
                 result.append(
                     {
                         "id": row["id"],
@@ -500,50 +348,36 @@ class DBManager:
                         "predicted_euro": self._parse_num_string(
                             row["predicted_euro"]
                         ),
+                        "model_name": row["method"],  # ✅ Συμβατότητα με δοκιμές
                         "method": row["method"],
                         "confidence": confidence,
                     }
                 )
-
             return result
 
-    def get_prediction_for_draw(
-        self,
-        draw_date: str,
-    ) -> Optional[Dict[str, Any]]:
+    def get_prediction_for_draw(self, draw_date: str) -> Optional[Dict[str, Any]]:
         """Return the prediction assigned to a specific draw."""
-
         with self._get_connection() as conn:
             cursor = conn.cursor()
-
             cursor.execute(
                 """
-                SELECT *
-                FROM predictions
+                SELECT * FROM predictions
                 WHERE for_draw_date = ?
                 ORDER BY prediction_date DESC
                 LIMIT 1
                 """,
                 (draw_date,),
             )
-
             row = cursor.fetchone()
-
             if row is None:
                 return None
 
             raw_confidence = row["confidence"]
-
             try:
                 confidence = (
-                    json.loads(raw_confidence)
-                    if raw_confidence
-                    else {}
+                    json.loads(raw_confidence) if raw_confidence else {}
                 )
-            except (
-                json.JSONDecodeError,
-                TypeError,
-            ):
+            except (json.JSONDecodeError, TypeError):
                 confidence = raw_confidence
 
             return {
@@ -556,6 +390,7 @@ class DBManager:
                 "predicted_euro": self._parse_num_string(
                     row["predicted_euro"]
                 ),
+                "model_name": row["method"],  # ✅ Συμβατότητα
                 "method": row["method"],
                 "confidence": confidence,
             }
@@ -568,57 +403,34 @@ class DBManager:
         Compare the prediction for the actual draw
         against the real result.
         """
-
         draw_date = actual_draw.get("draw_date")
-
         if not draw_date:
-            logger.error(
-                "Cannot validate draw without date."
-            )
+            logger.error("Cannot validate draw without date.")
             return {}
 
-        prediction = self.get_prediction_for_draw(
-            draw_date
-        )
-
+        prediction = self.get_prediction_for_draw(draw_date)
         if prediction is None:
-            logger.info(
-                "No prediction found for draw %s.",
-                draw_date,
-            )
+            logger.info("No prediction found for draw %s.", draw_date)
             return {}
 
         from src.analytics.backtester import Backtester
 
         result = Backtester.evaluate_prediction(
-            predicted_mains=prediction[
-                "predicted_primary"
-            ],
-            predicted_euros=prediction[
-                "predicted_euro"
-            ],
+            predicted_mains=prediction["predicted_primary"],
+            predicted_euros=prediction["predicted_euro"],
             actual_draw=actual_draw,
         )
-
         result["prediction_id"] = prediction["id"]
-        result["prediction_date"] = prediction[
-            "prediction_date"
-        ]
-        result["predicted_primary"] = prediction[
-            "predicted_primary"
-        ]
-        result["predicted_euro"] = prediction[
-            "predicted_euro"
-        ]
+        result["prediction_date"] = prediction["prediction_date"]
+        result["predicted_primary"] = prediction["predicted_primary"]
+        result["predicted_euro"] = prediction["predicted_euro"]
 
         logger.info(
             "VALIDATION COMPLETE | Draw=%s | "
-            "Main Hits=%s/5 | Euro Hits=%s/2 | "
-            "Target=%s",
+            "Main Hits=%s | Euro Hits=%s | Target=%s",
             draw_date,
-            result["main_hits_count"],
-            result["euro_hits_count"],
-            result["target_achieved"],
+            result.get("main_hits_count"),
+            result.get("euro_hits_count"),
+            result.get("target_achieved"),
         )
-
         return result

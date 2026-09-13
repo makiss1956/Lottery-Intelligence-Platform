@@ -84,6 +84,12 @@ class DBManager:
                 """
             )
 
+            # Safety migration: ensure model_name column exists if table was created previously without it
+            cursor = connection.execute("PRAGMA table_info(predictions)")
+            columns = [col["name"] for col in cursor.fetchall()]
+            if "model_name" not in columns:
+                connection.execute("ALTER TABLE predictions ADD COLUMN model_name TEXT NOT NULL DEFAULT 'Hybrid Ensemble'")
+
             connection.commit()
 
         finally:

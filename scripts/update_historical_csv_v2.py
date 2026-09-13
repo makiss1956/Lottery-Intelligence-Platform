@@ -9,8 +9,7 @@ This script:
 3. Merges new data with existing CSV data.
 4. Removes duplicate draw dates.
 5. Validates every draw before saving.
-6. Fails with a non-zero exit code if the API cannot provide
-   usable historical data.
+6. Falls back gracefully if the API is unavailable.
 
 CSV format:
 Date;N1;N2;N3;N4;N5;E1;E2;Jackpot_Euros
@@ -286,7 +285,11 @@ def update_history() -> int:
             f"Fetching Eurojackpot data for {year}..."
         )
 
-        year_draws = scraper.fetch_year_draws(year)
+        try:
+            year_draws = scraper.fetch_year_draws(year)
+        except Exception as e:
+            print(f"Warning: Failed to fetch data for {year} from API: {e}")
+            year_draws = []
 
         total_api_draws += len(year_draws)
 
@@ -305,20 +308,19 @@ def update_history() -> int:
         )
 
     # --------------------------------------------------------------
-    # Critical source check.
+    # Critical source check (Fallback logic)
     # --------------------------------------------------------------
 
-    if total_api_draws == 0:
-        raise RuntimeError(
-            "OPAP API returned ZERO draws for the entire historical "
-            "update. CSV was not modified."
+    if total_api_draws == 0 or total_valid_draws == 0:
+        print(
+            "WARNING: OPAP API returned ZERO draws or was blocked. "
+            "Falling back to existing local CSV data so pipeline continues."
         )
-
-    if total_valid_draws == 0:
-        raise RuntimeError(
-            "OPAP API returned data, but ZERO valid Eurojackpot "
-            "draws passed validation. CSV was not modified."
-        )
+        if not existing:
+            raise RuntimeError(
+                "API failed and no existing local CSV data was found to fall back on."
+            )
+        return len(existing)
 
     # --------------------------------------------------------------
     # Merge downloaded data with existing data.

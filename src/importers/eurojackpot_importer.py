@@ -140,24 +140,28 @@ class EurojackpotImporter:
         )
 
         # --------------------------------------------------------------
-        # 2. Always check the official OPAP API for the latest draw.
+        # 2. Try to check the official OPAP API for the latest draw.
         # --------------------------------------------------------------
 
-        latest_api_draw = self._fetch_latest_from_opap()
+        try:
+            latest_api_draw = self._fetch_latest_from_opap()
 
-        if latest_api_draw is not None:
-            if self._store_draw(latest_api_draw):
-                inserted_count += 1
+            if latest_api_draw is not None:
+                if self._store_draw(latest_api_draw):
+                    inserted_count += 1
 
-            logger.info(
-                "Latest OPAP draw synchronized: %s",
-                latest_api_draw["draw_date"],
-            )
-
-        else:
+                logger.info(
+                    "Latest OPAP draw synchronized: %s",
+                    latest_api_draw["draw_date"],
+                )
+            else:
+                logger.warning(
+                    "Could not retrieve the latest draw from OPAP during "
+                    "history synchronization (API returned None/404)."
+                )
+        except Exception as exc:
             logger.warning(
-                "Could not retrieve the latest draw from OPAP during "
-                "history synchronization."
+                "OPAP API check skipped due to error: %s", exc
             )
 
         # --------------------------------------------------------------
@@ -257,9 +261,10 @@ class EurojackpotImporter:
 
             return draw
 
-        except Exception:
-            logger.exception(
-                "Unexpected error while fetching latest draw from OPAP."
+        except Exception as exc:
+            logger.warning(
+                "Could not fetch latest draw from OPAP (Endpoint might be unavailable): %s",
+                exc
             )
             return None
 
@@ -282,17 +287,24 @@ class EurojackpotImporter:
                 encoding="utf-8-sig",
                 newline="",
             ) as csv_file:
+                # Try reading with semicolon delimiter first, fallback to comma if needed
+                sample = csv_file.read(2048)
+                csv_file.seek(0)
+                
+                delimiter = ";" if ";" in sample else ","
+
                 reader = csv.DictReader(
                     csv_file,
-                    delimiter=";",
+                    delimiter=delimiter,
                 )
 
                 rows = list(reader)
 
                 logger.info(
-                    "Read %d rows from %s",
+                    "Read %d rows from %s (Delimiter: '%s')",
                     len(rows),
                     self.csv_path,
+                    delimiter,
                 )
 
                 return rows
@@ -349,10 +361,14 @@ class EurojackpotImporter:
         if not row:
             return None
 
+        # Clean keys (strip whitespace/bom)
+        cleaned_row = {str(k).strip(): v for k, v in row.items() if k is not None}
+
         date_value = (
-            row.get("Date")
-            or row.get("date")
-            or row.get("draw_date")
+            cleaned_row.get("Date")
+            or cleaned_row.get("date")
+            or cleaned_row.get("draw_date")
+            or cleaned_row.get("DrawDate")
         )
 
         if not date_value:
@@ -361,28 +377,34 @@ class EurojackpotImporter:
         draw_date = self._normalize_csv_date(str(date_value))
 
         if draw_date is None:
-            logger.warning(
-                "Skipping CSV row with invalid date: %r",
-                date_value,
-            )
             return None
 
         try:
-            primary_numbers = [
-                int(row.get(f"N{i}", ""))
-                for i in range(1, 6)
-            ]
+            # Flexible key lookup for primary numbers (N1-N5 or number_1 etc)
+            primary_numbers = []
+            for i in range(1, 6):
+                val = (
+                    cleaned_row.get(f"N{i}")
+                    or cleaned_row.get(f"n{i}")
+                    or cleaned_row.get(f"number_{i}")
+                    or cleaned_row.get(f"num_{i}")
+                )
+                if val is not None and str(val).strip() != "":
+                    primary_numbers.append(int(str(val).strip()))
 
-            euro_numbers = [
-                int(row.get(f"E{i}", ""))
-                for i in range(1, 3)
-            ]
+            # Flexible key lookup for euro numbers (E1-E2 or euro_1 etc)
+            euro_numbers = []
+            for i in range(1, 3):
+                val = (
+                    cleaned_row.get(f"E{i}")
+                    or cleaned_row.get(f"e{i}")
+                    or cleaned_row.get(f"euro_{i}")
+                    or cleaned_row.get(f"star_{i}")
+                )
+                if val is not None and str(val).strip() != "":
+                    euro_numbers.append(int(str(val).strip()))
 
         except (TypeError, ValueError):
-            logger.warning(
-                "Skipping CSV row %s: invalid number fields.",
-                draw_date,
-            )
             return None
 
         # Strict validation of main numbers.
@@ -390,19 +412,9 @@ class EurojackpotImporter:
             return None
 
         if len(set(primary_numbers)) != 5:
-            logger.warning(
-                "Skipping %s: duplicate main numbers %s",
-                draw_date,
-                primary_numbers,
-            )
             return None
 
         if not all(1 <= number <= 50 for number in primary_numbers):
-            logger.warning(
-                "Skipping %s: main number outside 1-50: %s",
-                draw_date,
-                primary_numbers,
-            )
             return None
 
         # Strict validation of Euro numbers.
@@ -410,19 +422,9 @@ class EurojackpotImporter:
             return None
 
         if len(set(euro_numbers)) != 2:
-            logger.warning(
-                "Skipping %s: duplicate Euro numbers %s",
-                draw_date,
-                euro_numbers,
-            )
             return None
 
         if not all(1 <= number <= 12 for number in euro_numbers):
-            logger.warning(
-                "Skipping %s: Euro number outside 1-12: %s",
-                draw_date,
-                euro_numbers,
-            )
             return None
 
         return {
@@ -460,8 +462,6 @@ class EurojackpotImporter:
             except ValueError:
                 continue
 
-        # Handle ISO timestamps such as:
-        # 2026-08-20T21:00:00
         try:
             parsed = datetime.fromisoformat(
                 value.replace("Z", "+00:00")
@@ -488,9 +488,6 @@ class EurojackpotImporter:
 
         now = datetime.now(greece_tz)
 
-        # Eurojackpot draw days:
-        # Monday=0, Tuesday=1, Wednesday=2, Thursday=3,
-        # Friday=4, Saturday=5, Sunday=6.
         draw_weekdays = {1, 4}
 
         today = now.date()
@@ -501,9 +498,6 @@ class EurojackpotImporter:
             if candidate.weekday() not in draw_weekdays:
                 continue
 
-            # Expected draw time is approximately 21:00 Greece time.
-            # On the draw day, if we are already past 21:00,
-            # move to the next draw day.
             candidate_datetime = datetime(
                 candidate.year,
                 candidate.month,
@@ -516,6 +510,5 @@ class EurojackpotImporter:
             if candidate_datetime > now:
                 return candidate.strftime("%Y-%m-%d")
 
-        # This should never normally be reached.
         fallback = today + timedelta(days=7)
         return fallback.strftime("%Y-%m-%d")

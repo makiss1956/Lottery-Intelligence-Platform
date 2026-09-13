@@ -287,7 +287,6 @@ class EurojackpotImporter:
                 encoding="utf-8-sig",
                 newline="",
             ) as csv_file:
-                # Try reading with semicolon delimiter first, fallback to comma if needed
                 sample = csv_file.read(2048)
                 csv_file.seek(0)
                 
@@ -306,6 +305,9 @@ class EurojackpotImporter:
                     self.csv_path,
                     delimiter,
                 )
+
+                if rows:
+                    logger.debug("CSV detected column headers: %s", list(rows[0].keys()))
 
                 return rows
 
@@ -357,19 +359,25 @@ class EurojackpotImporter:
         self,
         row: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Parse and validate one CSV row."""
+        """Parse and validate one CSV row with flexible column name matching."""
         if not row:
             return None
 
-        # Clean keys (strip whitespace/bom)
-        cleaned_row = {str(k).strip(): v for k, v in row.items() if k is not None}
+        # Clean keys (strip whitespace/bom) and values
+        cleaned_row = {str(k).strip(): (str(v).strip() if v is not None else "") for k, v in row.items() if k is not None}
 
-        date_value = (
-            cleaned_row.get("Date")
-            or cleaned_row.get("date")
-            or cleaned_row.get("draw_date")
-            or cleaned_row.get("DrawDate")
-        )
+        # Flexible date lookup
+        date_keys = ["Date", "date", "draw_date", "DrawDate", "Ημερομηνία", "date_time", "drawTime"]
+        date_value = None
+        for k in date_keys:
+            if k in cleaned_row and cleaned_row[k]:
+                date_value = cleaned_row[k]
+                break
+
+        if not date_value and len(cleaned_row) > 0:
+            # Fallback to the first column if no known header matches
+            first_key = list(cleaned_row.keys())[0]
+            date_value = cleaned_row[first_key]
 
         if not date_value:
             return None
@@ -380,29 +388,27 @@ class EurojackpotImporter:
             return None
 
         try:
-            # Flexible key lookup for primary numbers (N1-N5 or number_1 etc)
+            # Flexible key lookup for primary numbers (N1-N5, number_1, num_1, etc.)
             primary_numbers = []
             for i in range(1, 6):
-                val = (
-                    cleaned_row.get(f"N{i}")
-                    or cleaned_row.get(f"n{i}")
-                    or cleaned_row.get(f"number_{i}")
-                    or cleaned_row.get(f"num_{i}")
-                )
-                if val is not None and str(val).strip() != "":
-                    primary_numbers.append(int(str(val).strip()))
+                val = None
+                for candidate in [f"N{i}", f"n{i}", f"number_{i}", f"num_{i}", f"Ball{i}", f"ball_{i}"]:
+                    if candidate in cleaned_row and cleaned_row[candidate] != "":
+                        val = cleaned_row[candidate]
+                        break
+                if val is not None:
+                    primary_numbers.append(int(val))
 
-            # Flexible key lookup for euro numbers (E1-E2 or euro_1 etc)
+            # Flexible key lookup for euro numbers (E1-E2, euro_1, star_1, etc.)
             euro_numbers = []
             for i in range(1, 3):
-                val = (
-                    cleaned_row.get(f"E{i}")
-                    or cleaned_row.get(f"e{i}")
-                    or cleaned_row.get(f"euro_{i}")
-                    or cleaned_row.get(f"star_{i}")
-                )
-                if val is not None and str(val).strip() != "":
-                    euro_numbers.append(int(str(val).strip()))
+                val = None
+                for candidate in [f"E{i}", f"e{i}", f"euro_{i}", f"star_{i}", f"Bonus{i}", f"bonus_{i}"]:
+                    if candidate in cleaned_row and cleaned_row[candidate] != "":
+                        val = cleaned_row[candidate]
+                        break
+                if val is not None:
+                    euro_numbers.append(int(val))
 
         except (TypeError, ValueError):
             return None

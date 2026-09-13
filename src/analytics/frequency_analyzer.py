@@ -25,6 +25,23 @@ class FrequencyAnalyzer:
         self.cache.set("all_draws", draws)
         return draws
 
+    def analyze(self) -> Dict[str, Any]:
+        """Perform full frequency and delay analysis for the pipeline."""
+        primary_freqs = self.get_primary_frequencies()
+        euro_freqs = self.get_euro_frequencies()
+        primary_delays, euro_delays = self.calculate_delays()
+        
+        return {
+            "primary_frequencies": primary_freqs,
+            "euro_frequencies": euro_freqs,
+            "primary_delays": primary_delays,
+            "euro_delays": euro_delays,
+        }
+
+    def analyze_frequencies(self) -> Dict[str, Any]:
+        """Alias for analyze() for compatibility."""
+        return self.analyze()
+
     def get_primary_frequencies(self) -> Dict[int, int]:
         draws = self.get_all_draws()
         freqs = {i: 0 for i in range(1, 51)}

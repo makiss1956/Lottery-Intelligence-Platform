@@ -1,5 +1,5 @@
 """Frequency and Delay Analysis Engine."""
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 from src.core.logger import get_logger
 
 logger = get_logger("FrequencyAnalyzer")

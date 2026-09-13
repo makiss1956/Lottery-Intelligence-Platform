@@ -168,9 +168,7 @@ def read_existing_csv() -> Dict[str, Dict[str, Any]]:
                     existing[draw_date] = draw
 
     except OSError as exc:
-        raise RuntimeError(
-            f"Unable to read existing CSV: {exc}"
-        ) from exc
+        print(f"Warning: Unable to read existing CSV: {exc}")
 
     print(
         f"Existing valid CSV draws: {len(existing)}"
@@ -314,12 +312,11 @@ def update_history() -> int:
     if total_api_draws == 0 or total_valid_draws == 0:
         print(
             "WARNING: OPAP API returned ZERO draws or was blocked. "
-            "Falling back to existing local CSV data so pipeline continues."
+            "Continuing execution with existing data or empty state."
         )
         if not existing:
-            raise RuntimeError(
-                "API failed and no existing local CSV data was found to fall back on."
-            )
+            print("INFO: No local CSV found and API failed. Proceeding without updating CSV.")
+            return 0
         return len(existing)
 
     # --------------------------------------------------------------

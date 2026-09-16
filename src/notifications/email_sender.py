@@ -41,13 +41,13 @@ class LotteryEmailSender:
                 <h2>🔮 Eurojackpot Prediction</h2>
                 <p><b>Next Draw:</b> {prediction.get('prediction_for_date', 'N/A')}</p>
                 <hr>
-                <h3>Primary Candidates (7 numbers, ranked by probability):</h3>
+                <h3>Primary Candidates (ranked by probability):</h3>
                 <ol>
-                    {''.join(f'<li><b>{n}</b> (score: {conf.get("primary", {}).get(n, "N/A")})</li>' for n in primary)}
+                    {''.join(f'<li><b>{n}</b> (score: {conf.get("primary", {}).get(str(n), conf.get("primary", {}).get(n, "N/A"))})</li>' for n in primary)}
                 </ol>
-                <h3>Euro Candidates (3 numbers, ranked):</h3>
+                <h3>Euro Candidates (ranked):</h3>
                 <ol>
-                    {''.join(f'<li><b>{n}</b> (score: {conf.get("euro", {}).get(n, "N/A")})</li>' for n in euro)}
+                    {''.join(f'<li><b>{n}</b> (score: {conf.get("euro", {}).get(str(n), conf.get("euro", {}).get(n, "N/A"))})</li>' for n in euro)}
                 </ol>
                 <hr>
                 <p><b>Method:</b> {prediction.get('method', 'N/A')}</p>

@@ -4,7 +4,7 @@ Eurojackpot Web Scraper.
 Uses the official OPAP API to retrieve Eurojackpot results.
 
 The scraper provides:
-- latest draw
+- latest draw (with fallback mechanism if /last-results returns 404)
 - draws for a date range
 - historical draws by year
 - strict validation of 5 main + 2 Euro numbers
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import calendar
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -56,6 +56,7 @@ class EurojackpotWebScraper:
     def fetch_latest_draw(self) -> Optional[Dict[str, Any]]:
         """
         Fetch the latest available Eurojackpot draw.
+        Falls back to fetching a recent date range if /last-results returns 404.
 
         Returns:
             Normalized draw dictionary or None if unavailable.
@@ -68,6 +69,11 @@ class EurojackpotWebScraper:
                 timeout=self.REQUEST_TIMEOUT,
             )
 
+            # If /last-results returns 404 or fails, try the date-range fallback
+            if response.status_code == 404:
+                logger.warning("/last-results returned 404. Using date-range fallback for latest draw.")
+                return self._fetch_latest_via_fallback()
+
             response.raise_for_status()
 
             data = response.json()
@@ -75,17 +81,15 @@ class EurojackpotWebScraper:
             # OPAP normally returns a list for /last-results.
             if isinstance(data, list):
                 if not data:
-                    logger.warning("OPAP returned an empty latest-results list.")
-                    return None
+                    logger.warning("OPAP returned an empty latest-results list. Trying fallback.")
+                    return self._fetch_latest_via_fallback()
 
-                # Normally the first item is the latest draw.
                 candidates = data
 
             elif isinstance(data, dict):
                 candidates = data.get("content", [])
 
                 if not candidates:
-                    # Some API responses may contain the draw directly.
                     candidates = [data]
 
             else:
@@ -93,7 +97,7 @@ class EurojackpotWebScraper:
                     "Unexpected OPAP latest-results response type: %s",
                     type(data).__name__,
                 )
-                return None
+                return self._fetch_latest_via_fallback()
 
             parsed_draws: List[Dict[str, Any]] = []
 
@@ -104,11 +108,8 @@ class EurojackpotWebScraper:
                     parsed_draws.append(parsed)
 
             if not parsed_draws:
-                logger.error(
-                    "OPAP returned latest draw data, but no valid "
-                    "Eurojackpot draw could be parsed."
-                )
-                return None
+                logger.warning("OPAP returned latest draw data, but no valid draws parsed. Trying fallback.")
+                return self._fetch_latest_via_fallback()
 
             parsed_draws.sort(
                 key=lambda draw: draw["draw_date"],
@@ -127,24 +128,36 @@ class EurojackpotWebScraper:
             return latest
 
         except requests.RequestException as exc:
-            logger.error(
-                "Failed to retrieve latest Eurojackpot draw from OPAP: %s",
-                exc,
-            )
-            return None
-
-        except ValueError as exc:
-            logger.error(
-                "Invalid JSON received from OPAP latest-results endpoint: %s",
-                exc,
-            )
-            return None
+            logger.warning("Failed to retrieve via /last-results (%s). Trying fallback.", exc)
+            return self._fetch_latest_via_fallback()
 
         except Exception:
-            logger.exception(
-                "Unexpected error while retrieving latest Eurojackpot draw."
-            )
-            return None
+            logger.exception("Unexpected error while retrieving latest Eurojackpot draw. Trying fallback.")
+            return self._fetch_latest_via_fallback()
+
+    def _fetch_latest_via_fallback(self) -> Optional[Dict[str, Any]]:
+        """Fallback method to get the latest draw using fetch_draws_range for the last 15 days."""
+        try:
+            today = datetime.now(timezone.utc).date()
+            start_day = (today - timedelta(days=15)).strftime("%Y-%m-%d")
+            end_day = today.strftime("%Y-%m-%d")
+            
+            logger.info("Fallback: fetching draws from %s to %s", start_day, end_day)
+            draws = self.fetch_draws_range(start_day, end_day)
+            
+            if draws:
+                draws.sort(key=lambda d: d["draw_date"], reverse=True)
+                latest = draws[0]
+                logger.info(
+                    "Fallback latest OPAP draw: %s | Main=%s | Euro=%s",
+                    latest["draw_date"],
+                    latest["primary_numbers"],
+                    latest["euro_numbers"],
+                )
+                return latest
+        except Exception as e:
+            logger.error("Fallback failed to retrieve latest draw: %s", e)
+        return None
 
     def fetch_draws_range(
         self,
@@ -532,8 +545,6 @@ class EurojackpotWebScraper:
                 if value.isdigit():
                     timestamp = int(value)
 
-                    # Milliseconds are expected. This also protects
-                    # against accidental second-based timestamps.
                     if timestamp > 10_000_000_000:
                         timestamp_seconds = timestamp / 1000.0
                     else:

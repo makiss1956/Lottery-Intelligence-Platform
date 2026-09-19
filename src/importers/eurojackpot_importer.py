@@ -1,4 +1,4 @@
-```python
+
 """
 Eurojackpot importer.
 
@@ -352,4 +352,4 @@ class EurojackpotImporter:
         return (
             today + timedelta(days=3)
         ).strftime("%Y-%m-%d")
-```
+

@@ -108,4 +108,4 @@ class Backtester:
                     2,
                 ),
         }
-```
+

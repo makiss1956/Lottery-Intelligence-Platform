@@ -439,4 +439,4 @@ class DBManager:
                 row["predicted_euro"]
             ),
         }
-```
+

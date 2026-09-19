@@ -7,7 +7,6 @@ from src.core.logger import get_logger
 logger = get_logger("Predictor")
 
 class ProbabilityPredictor:
-"""Statistical candidate selector."""
 
 ```
 def __init__(

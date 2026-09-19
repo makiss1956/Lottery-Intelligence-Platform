@@ -17,32 +17,20 @@ class Backtester:
         predicted_euros: List[int],
         actual_draw: Dict[str, Any],
     ) -> Dict[str, Any]:
-        predicted_main_set: Set[int] = set(
-            predicted_mains
-        )
-        predicted_joker_set: Set[int] = set(
-            predicted_euros
-        )
+        predicted_main_set: Set[int] = set(predicted_mains)
+        predicted_joker_set: Set[int] = set(predicted_euros)
         actual_main_set: Set[int] = set(
-            actual_draw.get(
-                "primary_numbers",
-                [],
-            )
+            actual_draw.get("primary_numbers", [])
         )
         actual_euro_set: Set[int] = set(
-            actual_draw.get(
-                "euro_numbers",
-                [],
-            )
+            actual_draw.get("euro_numbers", [])
         )
 
         matched_mains = sorted(
-            predicted_main_set
-            .intersection(actual_main_set)
+            predicted_main_set.intersection(actual_main_set)
         )
         matched_jokers = sorted(
-            predicted_joker_set
-            .intersection(actual_euro_set)
+            predicted_joker_set.intersection(actual_euro_set)
         )
 
         main_hits = len(matched_mains)
@@ -64,10 +52,7 @@ class Backtester:
             "matched_euro_numbers": matched_jokers,
             "matched_joker": matched_jokers,
             "target_achieved": main_hits >= 3,
-            "score_percentage": round(
-                (main_hits / 3.0) * 100,
-                2,
-            ),
+            "score_percentage": round((main_hits / 3.0) * 100, 2),
         }
 
     @staticmethod
@@ -87,6 +72,7 @@ class Backtester:
         )
 
         return {
+            "total_tests": total,
             "total_draws": total,
             "success_count": success_count,
             "success_rate": (

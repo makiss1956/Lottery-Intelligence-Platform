@@ -57,14 +57,26 @@ def run_pipeline() -> Dict[str, Any]:
     logger.info("CSV synchronization inserted %d draws", inserted)
 
     # ---------------------------------------------------------
-    # STEP 3
+    # STEP 3 — ΔΙΟΡΘΩΜΕΝΟ: Συνέχεια με τοπικά δεδομένα αν το API αποτύχει
     # ---------------------------------------------------------
-    # IMPORTANT:
-    # OPAP is queried BEFORE relying on CSV.
     logger.info("STEP 3 - Retrieve latest live draw")
     latest_draw = importer.fetch_latest_draw()
+
     if latest_draw is None:
-        raise RuntimeError("Could not retrieve latest Eurojackpot draw.")
+        logger.warning(
+            "⚠ Δεν ήταν δυνατή η ανάκτηση κλήρωσης από το OPAP API. "
+            "Συνεχίζουμε με την τελευταία αποθηκευμένη κλήρωση από τη βάση."
+        )
+        latest_draw = db.get_latest_draw()
+        if latest_draw is None:
+            raise RuntimeError(
+                "Αποτυχία: Δεν υπάρχει καμία κλήρωση ούτε από το API ούτε από τη βάση."
+            )
+        logger.info(
+            "✅ Χρήση τελευταίας αποθηκευμένης κλήρωσης: %s",
+            latest_draw["draw_date"],
+        )
+
     latest_date = latest_draw["draw_date"]
     logger.info(
         "LATEST DRAW: %s | Main=%s | Euro=%s",
@@ -142,7 +154,6 @@ def run_pipeline() -> Dict[str, Any]:
     # STEP 8
     # ---------------------------------------------------------
     logger.info("STEP 8 - Save prediction")
-    # If a prediction already exists for this target, do not create a duplicate.
     if db.prediction_exists(next_draw_date):
         logger.warning("Prediction already exists for %s", next_draw_date)
         existing = next(

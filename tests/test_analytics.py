@@ -42,9 +42,9 @@ def test_predictor_with_empty_db(tmp_path):
     analyzer = FrequencyAnalyzer(db_mgr)
     predictor = ProbabilityPredictor(analyzer)
 
-    candidates = predictor.predict_candidate_set(primary_count=7, euro_count=3)
-    assert len(candidates["primary_candidates"]) == 7
-    assert len(candidates["euro_candidates"]) == 3
+    candidates = predictor.predict_candidate_set(primary_count=3, euro_count=1)
+    assert len(candidates["primary_candidates"]) == 3
+    assert len(candidates["euro_candidates"]) == 1
 
 
 def test_backtester_static_methods():

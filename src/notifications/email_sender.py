@@ -1,4 +1,4 @@
-```python
+
 """Email notification sender."""
 
 from __future__ import annotations
@@ -281,4 +281,4 @@ class LotteryEmailSender:
             )
 
             return False
-```
+

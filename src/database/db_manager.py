@@ -1,4 +1,4 @@
-```python
+
 """
 Database manager for Lottery Intelligence Platform.
 

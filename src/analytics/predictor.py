@@ -7,17 +7,9 @@ from src.core.logger import get_logger
 logger = get_logger("Predictor")
 
 class ProbabilityPredictor:
-"""Statistical candidate selector.
+"""Statistical candidate selector."""
 
 ```
-Output:
-    3 main numbers from 1-50
-    1 Joker/Euro number from 1-12
-
-The model combines historical frequency and delay.
-It is a statistical experiment, not a guarantee of future results.
-"""
-
 def __init__(
     self,
     frequency_analyzer,
@@ -98,14 +90,12 @@ def predict_candidate_set(
 
     if len(primary_candidates) != 3:
         raise RuntimeError(
-            f"Predictor produced "
-            f"{len(primary_candidates)} main numbers."
+            f"Predictor produced {len(primary_candidates)} main numbers."
         )
 
     if len(euro_candidates) != 1:
         raise RuntimeError(
-            f"Predictor produced "
-            f"{len(euro_candidates)} Joker numbers."
+            f"Predictor produced {len(euro_candidates)} Joker numbers."
         )
 
     logger.info(
@@ -121,17 +111,11 @@ def predict_candidate_set(
         "method": "composite_frequency_delay",
         "confidence": {
             "primary": {
-                number: round(
-                    primary_scores[number],
-                    4,
-                )
+                number: round(primary_scores[number], 4)
                 for number in primary_candidates
             },
             "joker": {
-                number: round(
-                    euro_scores[number],
-                    4,
-                )
+                number: round(euro_scores[number], 4)
                 for number in euro_candidates
             },
         },

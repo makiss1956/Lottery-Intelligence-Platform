@@ -71,14 +71,15 @@ class Backtester:
             for item in history
         )
 
+        success_rate_percentage = (
+            round(success_count / total * 100, 2)
+            if total > 0 else 0.0
+        )
+
         return {
             "total_tests": total,
-            "total_draws": total,
             "success_count": success_count,
-            "success_rate": (
-                round(success_count / total * 100, 2)
-                if total > 0 else 0.0
-            ),
+            "success_rate_percentage": success_rate_percentage,
             "average_hits_per_draw": (
                 round(total_hits / total, 2)
                 if total > 0 else 0.0

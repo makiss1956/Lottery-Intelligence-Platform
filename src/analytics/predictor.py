@@ -1,4 +1,4 @@
-```python
+
 """Prediction engine for 3 main numbers + 1 Joker/Euro number."""
 
 from typing import Any, Dict, List

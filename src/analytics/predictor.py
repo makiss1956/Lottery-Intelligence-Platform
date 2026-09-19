@@ -7,8 +7,7 @@ from src.core.logger import get_logger
 logger = get_logger("Predictor")
 
 class ProbabilityPredictor:
-"""
-Statistical candidate selector.
+"""Statistical candidate selector.
 
 ```
 Output:
@@ -47,10 +46,6 @@ def predict_candidate_set(
             "This model requires exactly 1 Joker/Euro number."
         )
 
-    # ---------------------------------------------------------
-    # Main numbers
-    # ---------------------------------------------------------
-
     primary_freqs = self.freq_analyzer.get_primary_frequencies()
     primary_delays, _ = self.freq_analyzer.calculate_delays()
 
@@ -72,10 +67,6 @@ def predict_candidate_set(
         for number, _ in sorted_primary[:primary_count]
     ]
 
-    # ---------------------------------------------------------
-    # Joker / Euro number
-    # ---------------------------------------------------------
-
     euro_freqs = self.freq_analyzer.get_euro_frequencies()
     _, euro_delays = self.freq_analyzer.calculate_delays()
 
@@ -96,10 +87,6 @@ def predict_candidate_set(
         number
         for number, _ in sorted_euro[:euro_count]
     ]
-
-    # ---------------------------------------------------------
-    # Safety validation
-    # ---------------------------------------------------------
 
     primary_candidates = sorted(
         list(dict.fromkeys(primary_candidates))
@@ -187,7 +174,6 @@ def _compute_scores(
     scores: Dict[int, float] = {}
 
     for number in range(min_num, max_num + 1):
-
         normalized_frequency = (
             (freqs.get(number, 0) - min_freq)
             / freq_range

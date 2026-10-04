@@ -1,4 +1,3 @@
-
 """
 Eurojackpot importer.
 
@@ -11,7 +10,7 @@ Priority:
 from __future__ import annotations
 
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -317,39 +316,17 @@ class EurojackpotImporter:
     # Next draw
     # ---------------------------------------------------------
 
-    def get_next_draw_date(self) -> str:
+    def get_next_draw_date(self, include_today: bool = False) -> str:
 
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
+        start_offset = 0 if include_today else 1
 
-        weekday = today.weekday()
+        for days_ahead in range(start_offset, 8):
 
-        # Tuesday = 1
-        # Friday = 4
+            candidate = today + timedelta(days=days_ahead)
 
-        if weekday == 1:
-            return (
-                today + timedelta(days=3)
-            ).strftime("%Y-%m-%d")
+            if candidate.weekday() in (1, 4):  # 1 = Tuesday, 4 = Friday
 
-        if weekday == 4:
-            return (
-                today + timedelta(days=4)
-            ).strftime("%Y-%m-%d")
+                return candidate.strftime("%Y-%m-%d")
 
-        for days_ahead in range(1, 8):
-
-            candidate = (
-                today
-                + timedelta(days=days_ahead)
-            )
-
-            if candidate.weekday() in (1, 4):
-
-                return candidate.strftime(
-                    "%Y-%m-%d"
-                )
-
-        return (
-            today + timedelta(days=3)
-        ).strftime("%Y-%m-%d")
-
+        return (today + timedelta(days=1)).strftime("%Y-%m-%d")

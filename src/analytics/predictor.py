@@ -23,15 +23,6 @@ class ProbabilityPredictor:
         primary_count: int = 3,
         euro_count: int = 1,
     ) -> Dict[str, Any]:
-        if primary_count != 3:
-            raise ValueError(
-                "This model requires exactly 3 main numbers."
-            )
-        if euro_count != 1:
-            raise ValueError(
-                "This model requires exactly 1 Joker/Euro number."
-            )
-
         primary_freqs = self.freq_analyzer.get_primary_frequencies()
         primary_delays, _ = self.freq_analyzer.calculate_delays()
         primary_scores = self._compute_scores(
@@ -75,13 +66,13 @@ class ProbabilityPredictor:
             list(dict.fromkeys(euro_candidates))
         )
 
-        if len(primary_candidates) != 3:
+        if len(primary_candidates) != primary_count:
             raise RuntimeError(
-                f"Predictor produced {len(primary_candidates)} main numbers."
+                f"Predictor produced {len(primary_candidates)} main numbers (expected {primary_count})."
             )
-        if len(euro_candidates) != 1:
+        if len(euro_candidates) != euro_count:
             raise RuntimeError(
-                f"Predictor produced {len(euro_candidates)} Joker numbers."
+                f"Predictor produced {len(euro_candidates)} Joker numbers (expected {euro_count})."
             )
 
         logger.info(
@@ -107,11 +98,11 @@ class ProbabilityPredictor:
             },
             "primary_scores": {
                 number: round(score, 4)
-                for number, score in sorted_primary[:3]
+                for number, score in sorted_primary[:primary_count]
             },
             "euro_scores": {
                 number: round(score, 4)
-                for number, score in sorted_euro[:1]
+                for number, score in sorted_euro[:euro_count]
             },
         }
 

@@ -64,13 +64,13 @@ class FrequencyAnalyzer:
         cached = self.cache.get("delays")
         if cached is not None:
             return cached
-        draws = self.get_all_draws()
+        # Αντιστροφή ώστε η πιο πρόσφατη κλήρωση να είναι στην αρχή (index 0)
+        draws = self.get_all_draws()[::-1]
         total = len(draws)
 
         primary_delays = {i: -1 for i in range(1, 51)}
         euro_delays = {i: -1 for i in range(1, 13)}
 
-        # Διατρέχουμε από την πιο πρόσφατη κλήρωση (idx 0) προς τα πίσω
         for idx, draw in enumerate(draws):
             for num in draw.get("primary_numbers", []):
                 if 1 <= num <= 50 and primary_delays[num] == -1:

@@ -6,7 +6,7 @@ The scraper provides:
 - draws for a date range
 - historical draws by year
 - strict validation of 5 main + 2 Euro numbers
-OPAP Eurojackpot game ID: 5109
+OPAP Eurojackpot game ID: 5104
 """
 from __future__ import annotations
 import calendar
@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 class EurojackpotWebScraper:
     """Retrieve Eurojackpot draws from the official OPAP API."""
-    GAME_ID = 5109
+
+    GAME_ID = 5104  # ΔΙΟΡΘΩΣΗ: Ο σωστός κωδικός του Eurojackpot στον ΟΠΑΠ είναι 5104
     BASE_URL = f"https://api.opap.gr/draws/v3.0/{GAME_ID}"
     REQUEST_TIMEOUT = 30
 
@@ -57,14 +58,20 @@ class EurojackpotWebScraper:
             )
             # If /last-results returns 404 or fails, try the date-range fallback
             if response.status_code == 404:
-                logger.warning("/last-results returned 404. Using date-range fallback for latest draw.")
+                logger.warning(
+                    "/last-results returned 404. Using date-range fallback for"
+                    " latest draw."
+                )
                 return self._fetch_latest_via_fallback()
             response.raise_for_status()
             data = response.json()
             # OPAP normally returns a list for /last-results.
             if isinstance(data, list):
                 if not data:
-                    logger.warning("OPAP returned an empty latest-results list. Trying fallback.")
+                    logger.warning(
+                        "OPAP returned an empty latest-results list. Trying"
+                        " fallback."
+                    )
                     return self._fetch_latest_via_fallback()
                 candidates = data
             elif isinstance(data, dict):
@@ -84,7 +91,10 @@ class EurojackpotWebScraper:
                 if parsed is not None:
                     parsed_draws.append(parsed)
             if not parsed_draws:
-                logger.warning("OPAP returned latest draw data, but no valid draws parsed. Trying fallback.")
+                logger.warning(
+                    "OPAP returned latest draw data, but no valid draws parsed."
+                    " Trying fallback."
+                )
                 return self._fetch_latest_via_fallback()
 
             parsed_draws.sort(
@@ -101,10 +111,16 @@ class EurojackpotWebScraper:
             return latest
 
         except requests.RequestException as exc:
-            logger.warning("Failed to retrieve via /last-results (%s). Trying fallback.", exc)
+            logger.warning(
+                "Failed to retrieve via /last-results (%s). Trying fallback.",
+                exc,
+            )
             return self._fetch_latest_via_fallback()
         except Exception:
-            logger.exception("Unexpected error while retrieving latest Eurojackpot draw. Trying fallback.")
+            logger.exception(
+                "Unexpected error while retrieving latest Eurojackpot draw."
+                " Trying fallback."
+            )
             return self._fetch_latest_via_fallback()
 
     def _fetch_latest_via_fallback(self) -> Optional[Dict[str, Any]]:
@@ -120,7 +136,9 @@ class EurojackpotWebScraper:
             start_day = (today - timedelta(days=30)).strftime("%Y-%m-%d")
             end_day = today.strftime("%Y-%m-%d")
 
-            logger.info("Fallback: fetching draws from %s to %s", start_day, end_day)
+            logger.info(
+                "Fallback: fetching draws from %s to %s", start_day, end_day
+            )
             draws = self.fetch_draws_range(start_day, end_day)
 
             if draws:
@@ -135,7 +153,9 @@ class EurojackpotWebScraper:
                 return latest
 
             # Try 2: direct /draw/last endpoint
-            logger.warning("No draws in date range — trying /draw/last endpoint")
+            logger.warning(
+                "No draws in date range — trying /draw/last endpoint"
+            )
             url = f"{self.BASE_URL}/draw/last"
             try:
                 resp = self.session.get(url, timeout=self.REQUEST_TIMEOUT)
@@ -143,7 +163,9 @@ class EurojackpotWebScraper:
                     data = resp.json()
                     parsed = self._parse_draw(data)
                     if parsed:
-                        logger.info("Retrieved from /draw/last: %s", parsed["draw_date"])
+                        logger.info(
+                            "Retrieved from /draw/last: %s", parsed["draw_date"]
+                        )
                         return parsed
             except Exception as e:
                 logger.debug("/draw/last endpoint failed: %s", e)
@@ -164,10 +186,7 @@ class EurojackpotWebScraper:
         Dates must use:
             YYYY-MM-DD
         """
-        url = (
-            f"{self.BASE_URL}/draw-date/"
-            f"{start_date}/{end_date}"
-        )
+        url = f"{self.BASE_URL}/draw-date/{start_date}/{end_date}"
         try:
             response = self.session.get(
                 url,
@@ -194,9 +213,7 @@ class EurojackpotWebScraper:
                 if parsed is not None:
                     parsed_draws.append(parsed)
 
-            parsed_draws.sort(
-                key=lambda draw: draw["draw_date"]
-            )
+            parsed_draws.sort(key=lambda draw: draw["draw_date"])
             logger.info(
                 "OPAP range %s to %s: %d valid draws",
                 start_date,
@@ -238,8 +255,7 @@ class EurojackpotWebScraper:
         today = datetime.now(timezone.utc).date()
         if year < 2012:
             logger.warning(
-                "Eurojackpot did not exist before 2012. "
-                "Skipping year %s.",
+                "Eurojackpot did not exist before 2012. Skipping year %s.",
                 year,
             )
             return []
@@ -263,9 +279,7 @@ class EurojackpotWebScraper:
             )[1]
             if year == today.year and month == today.month:
                 last_day_number = today.day
-            last_day = (
-                f"{year:04d}-{month:02d}-{last_day_number:02d}"
-            )
+            last_day = f"{year:04d}-{month:02d}-{last_day_number:02d}"
             logger.info(
                 "Fetching Eurojackpot draws for %s",
                 f"{year:04d}-{month:02d}",

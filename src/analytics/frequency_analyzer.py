@@ -70,6 +70,7 @@ class FrequencyAnalyzer:
         primary_delays = {i: -1 for i in range(1, 51)}
         euro_delays = {i: -1 for i in range(1, 13)}
 
+        # Διατρέχουμε από την πιο πρόσφατη κλήρωση (idx 0) προς τα πίσω
         for idx, draw in enumerate(draws):
             for num in draw.get("primary_numbers", []):
                 if 1 <= num <= 50 and primary_delays[num] == -1:

@@ -4,10 +4,10 @@ Workflow:
 1. Initialize database.
 2. Synchronize historical CSV.
 3. Retrieve the latest real draw from OPAP.
-4. Store the latest draw.
+4. Store the latest draw into DB (if new).
 5. Evaluate the previous prediction.
 6. Determine the next draw.
-7. Generate 3 main + 1 Joker prediction.
+7. Generate prediction (e.g. 3 main + 1 Joker or 5+2).
 8. Save prediction.
 9. Send email.
 """
@@ -57,7 +57,7 @@ def run_pipeline() -> Dict[str, Any]:
     logger.info("CSV synchronization inserted %d draws", inserted)
 
     # ---------------------------------------------------------
-    # STEP 3 — ΔΙΟΡΘΩΜΕΝΟ: Συνέχεια με τοπικά δεδομένα αν το API αποτύχει
+    # STEP 3 & 4 - Retrieve & Store Live Draw
     # ---------------------------------------------------------
     logger.info("STEP 3 - Retrieve latest live draw")
     latest_draw = importer.fetch_latest_draw()
@@ -76,6 +76,11 @@ def run_pipeline() -> Dict[str, Any]:
             "✅ Χρήση τελευταίας αποθηκευμένης κλήρωσης: %s",
             latest_draw["draw_date"],
         )
+    else:
+        # Αποθήκευση της νέας live κλήρωσης στη βάση αν δεν υπάρχει ήδη
+        is_new = db.insert_draw(latest_draw)
+        if is_new:
+            logger.info("✅ Η νέα live κλήρωση (%s) αποθηκεύτηκε στη βάση.", latest_draw["draw_date"])
 
     latest_date = latest_draw["draw_date"]
     logger.info(
@@ -86,9 +91,9 @@ def run_pipeline() -> Dict[str, Any]:
     )
 
     # ---------------------------------------------------------
-    # STEP 4
+    # STEP 5 - Evaluate Previous Prediction
     # ---------------------------------------------------------
-    logger.info("STEP 4 - Evaluate previous prediction")
+    logger.info("STEP 5 - Evaluate previous prediction")
     predictions = db.get_predictions(limit=100)
     evaluated_prediction: Optional[Dict[str, Any]] = None
     previous_prediction: Optional[Dict[str, Any]] = None
@@ -103,55 +108,59 @@ def run_pipeline() -> Dict[str, Any]:
             actual_draw=latest_draw,
         )
         logger.info("PREVIOUS PREDICTION RESULT")
-        logger.info("Main hits: %d / 3", evaluated_prediction["main_hits_count"])
-        logger.info("Joker hits: %d / 1", evaluated_prediction["euro_hits_count"])
+        logger.info(
+            "Main hits: %d / %d",
+            evaluated_prediction.get("main_hits_count", 0),
+            len(prediction.get("predicted_primary", []))
+        )
+        logger.info(
+            "Joker/Euro hits: %d / %d",
+            evaluated_prediction.get("euro_hits_count", 0),
+            len(prediction.get("predicted_euro", []))
+        )
         break
 
     if evaluated_prediction is None:
         logger.info("No previous prediction found for draw %s", latest_date)
 
     # ---------------------------------------------------------
-    # STEP 5
+    # STEP 6 - Determine Next Draw Date
     # ---------------------------------------------------------
-    logger.info("STEP 5 - Determine next draw")
+    logger.info("STEP 6 - Determine next draw")
     next_draw_date = importer.get_next_draw_date()
     logger.info("NEXT DRAW TARGET: %s", next_draw_date)
 
     # ---------------------------------------------------------
-    # STEP 6
+    # STEP 7 - Statistical Analysis & Prediction Generation
     # ---------------------------------------------------------
-    logger.info("STEP 6 - Statistical analysis")
+    logger.info("STEP 7 - Generate Prediction")
     frequency_analyzer = FrequencyAnalyzer(db)
     pattern_analyzer = None
 
-    # ---------------------------------------------------------
-    # STEP 7
-    # ---------------------------------------------------------
-    logger.info("STEP 7 - Generate 3 + 1 prediction")
+    # Παράμετροι Πρόβλεψης (3 κύρια + 1 Joker)
+    TARGET_PRIMARY = 3
+    TARGET_EURO = 1
+
     predictor = ProbabilityPredictor(
         frequency_analyzer=frequency_analyzer,
         pattern_analyzer=pattern_analyzer,
     )
     prediction = predictor.predict_candidate_set(
-        primary_count=3,
-        euro_count=1,
+        primary_count=TARGET_PRIMARY,
+        euro_count=TARGET_EURO,
     )
     primary_candidates = sorted(prediction["primary_candidates"])
     joker_candidates = sorted(prediction["euro_candidates"])
 
-    if len(primary_candidates) != 3:
-        raise RuntimeError(
-            "Prediction must contain exactly 3 main numbers."
-        )
-    if len(joker_candidates) != 1:
-        raise RuntimeError(
-            "Prediction must contain exactly 1 Joker number."
-        )
+    if len(primary_candidates) != TARGET_PRIMARY:
+        raise RuntimeError(f"Prediction must contain exactly {TARGET_PRIMARY} main numbers.")
+    if len(joker_candidates) != TARGET_EURO:
+        raise RuntimeError(f"Prediction must contain exactly {TARGET_EURO} Joker number(s).")
 
     logger.info("NEW PREDICTION: Main=%s | Joker=%s", primary_candidates, joker_candidates)
 
     # ---------------------------------------------------------
-    # STEP 8
+    # STEP 8 - Save Prediction
     # ---------------------------------------------------------
     logger.info("STEP 8 - Save prediction")
     if db.prediction_exists(next_draw_date):
@@ -182,10 +191,10 @@ def run_pipeline() -> Dict[str, Any]:
     )
     if not saved:
         raise RuntimeError("Prediction could not be saved.")
-    logger.info("Prediction saved.")
+    logger.info("Prediction saved successfully.")
 
     # ---------------------------------------------------------
-    # STEP 9 - EMAIL
+    # STEP 9 - Email Notification
     # ---------------------------------------------------------
     logger.info("STEP 9 - Send email")
     email_sent = False
@@ -218,7 +227,8 @@ def run_pipeline() -> Dict[str, Any]:
         "next_draw_date": next_draw_date,
         "prediction": {
             "primary_candidates": primary_candidates,
-            "joker": joker_candidates[0],
+            "joker": joker_candidates[0] if joker_candidates else None,
+            "euro_candidates": joker_candidates,
             "method": prediction.get("method", "composite_frequency_delay"),
         },
         "prediction_saved": True,
@@ -228,10 +238,10 @@ def run_pipeline() -> Dict[str, Any]:
     }
 
     logger.info("=" * 70)
-    logger.info("PIPELINE COMPLETED")
+    logger.info("PIPELINE COMPLETED SUCCESSFULLY")
     logger.info("Latest draw: %s", latest_date)
     logger.info("Next prediction: %s", next_draw_date)
-    logger.info("Prediction: Main=%s | Joker=%s", primary_candidates, joker_candidates[0])
+    logger.info("Prediction: Main=%s | Joker=%s", primary_candidates, joker_candidates)
     logger.info("Previous prediction evaluated: %s", evaluated_prediction is not None)
     logger.info("Email sent: %s", email_sent)
     logger.info("=" * 70)

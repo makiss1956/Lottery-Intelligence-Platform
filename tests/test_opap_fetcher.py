@@ -6,6 +6,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
+from requests.exceptions import RequestException
 from src.importers.web_scraper import EurojackpotWebScraper
 
 
@@ -47,15 +48,14 @@ def test_invalid_draw_is_rejected():
     bad_draw = {
         "drawTime": 1776283200000,
         "winningNumbers": {
-            "list": [5, 99, 18, 33, 45],  # 99 εκτός ορίων
+            "list": [5, 99, 18, 33, 45],  # 99 εκτός ορίων (1-50)
             "sideClassNum": [3, 9]
         }
     }
     
     result = scraper._parse_draw(bad_draw)
-    # Επειδή οι αριθμοί δεν επικυρώνονται με εύρη τιμών, επιστρέφει δομή
-    # αλλά με λανθασμένο αριθμό αριθμών → επιστρέφει None
-    assert result is None or len(result["primary_numbers"]) == 5
+    # Αν η επικύρωση εύρους απορρίπτει εκτός ορίων τιμές, επιστρέφει None
+    assert result is None or 99 not in result.get("primary_numbers", [])
 
 
 def test_valid_draw_parser():
@@ -97,3 +97,26 @@ def test_parser_accepts_sideClassNumbers_format():
     result = scraper._parse_draw(raw_draw)
     assert result is not None
     assert result["euro_numbers"] == [6, 7]
+
+
+def test_fetch_draws_range_http_error():
+    """Έλεγχος διαχείρισης σφάλματος HTTP (π.χ. 500 Server Error)."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = RequestException("Server Error")
+
+    with patch("requests.Session.get", return_value=mock_response):
+        scraper = EurojackpotWebScraper()
+        result = scraper.fetch_draws_range("2026-04-01", "2026-04-30")
+        assert result == []
+
+
+def test_parse_draw_malformed_json():
+    """Έλεγχος μη έγκυρης ή ελλιπούς δομής JSON."""
+    scraper = EurojackpotWebScraper()
+    
+    # Ελλιπές JSON χωρίς 'winningNumbers'
+    malformed_draw = {"drawTime": 1776283200000}
+    assert scraper._parse_draw(malformed_draw) is None
+
+    # Κενό dictionary
+    assert scraper._parse_draw({}) is None

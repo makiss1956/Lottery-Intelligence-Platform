@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Path setup για standalone execution
+# Path setup για standalone execution (προσαρμόστε τα .parent ανάλογα με τη θέση του αρχείου)
 project_root = Path(__file__).resolve().parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
@@ -16,21 +16,21 @@ from src.core.logger import get_logger
 
 logger = get_logger("CLI")
 
+
 def cmd_fetch(args):
     logger.info("Fetching latest draw data...")
-    importer = EurojackpotImporter()
-    draws = importer.fetch_latest_draw()  # ✅ ΔΙΟΡΘΩΣΗ: ενικός, όχι πληθυντικός
+    db_mgr = DBManager()
+    
+    # Περνάμε τον db_mgr στον importer για να διαχειριστεί σωστά insert/replace
+    importer = EurojackpotImporter(db_manager=db_mgr)
+    latest_draw = importer.fetch_latest_draw()
 
-    if not draws:
+    if not latest_draw:
         logger.warning("No draws retrieved.")
         return
 
-    db_mgr = DBManager()
-    inserted = 0
-    if db_mgr.insert_draw(draws):  # ✅ ΔΙΟΡΘΩΣΗ: ενικός, όχι loop
-        inserted += 1
+    logger.info(f"Fetch completed. Latest draw date: {latest_draw.get('draw_date')}")
 
-    logger.info(f"Fetch completed. Inserted {inserted} new draw(s).")
 
 def cmd_predict(args):
     logger.info("Generating predictions...")
@@ -56,6 +56,7 @@ def cmd_predict(args):
     print(f"Method Used     : {prediction.get('method', 'N/A')}")
     print("=" * 50 + "\n")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Lottery Intelligence Platform CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -76,6 +77,7 @@ def main():
         cmd_predict(args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

@@ -46,15 +46,13 @@ class ProbabilityPredictor:
             )
 
         # ==============================================
-        # === ΔΙΟΡΘΩΣΗ: ΠΑΝΤΑ ΑΚΡΙΒΩΣ 7 + 3 ΑΡΙΘΜΟΙ ===
+        # === ΠΑΝΤΑ ΑΚΡΙΒΩΣ 7 + 3 ΑΡΙΘΜΟΙ ===
         # ==============================================
-        # Καθαρισμός διπλότυπων διατηρώντας τη σειρά
         clean_primary = []
         for n in primary_candidates:
             if n not in clean_primary:
                 clean_primary.append(n)
 
-        # Αν μετά την βελτιστοποίηση λείπουν αριθμοί, συμπληρώνονται από τους υποψήφιους
         if len(clean_primary) < primary_count:
             for num, _ in sorted_primary:
                 if num not in clean_primary:
@@ -92,8 +90,8 @@ class ProbabilityPredictor:
                 "primary": primary_conf,
                 "euro": euro_conf
             },
-            "primary_scores": {n: round(s, 4) for n, s in sorted_primary[:primary_count]},
-            "euro_scores": {n: round(s, 4) for n, s in sorted_euro[:euro_count]}
+            "primary_scores": primary_conf,
+            "euro_scores": euro_conf
         }
 
     def _compute_scores(self, freqs: Dict[int, int], delays: Dict[int, int],
@@ -118,7 +116,6 @@ class ProbabilityPredictor:
         if not candidates or not extended_pool:
             return candidates
 
-        # Διατήρηση μοναδικών τιμών
         candidates = list(dict.fromkeys(candidates))
 
         odd = sum(1 for n in candidates if n % 2 != 0)
@@ -132,15 +129,19 @@ class ProbabilityPredictor:
                 candidates.append(replacement)
                 logger.info("Rebalanced odd/even: replaced %s with %s.", removed, replacement)
 
+        # Δυναμικός υπολογισμός ορίων αθροίσματος ανάλογα με το πλήθος των candidates
+        n_candidates = len(candidates)
+        min_sum_limit = int(n_candidates * 18)  # π.χ. για 7 -> 126
+        max_sum_limit = int(n_candidates * 33)  # π.χ. για 7 -> 231
+
         current_sum = sum(candidates)
-        if current_sum < 90 or current_sum > 160:
+        if current_sum < min_sum_limit or current_sum > max_sum_limit:
             for i, num in enumerate(candidates):
                 for repl in extended_pool:
-                    # Αποφυγή αντικατάστασης με αριθμό που υπάρχει ήδη στους candidates
                     if repl in candidates:
                         continue
                     new_sum = current_sum - num + repl
-                    if 90 <= new_sum <= 160:
+                    if min_sum_limit <= new_sum <= max_sum_limit:
                         candidates[i] = repl
                         logger.info("Sum rebalanced: %s -> %s (sum now %s)", num, repl, new_sum)
                         return candidates

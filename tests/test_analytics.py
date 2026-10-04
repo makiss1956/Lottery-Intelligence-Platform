@@ -36,6 +36,17 @@ def test_frequency_analyzer(test_db):
     assert euro_freqs[1] == 2
 
 
+def test_frequency_analyzer_delays(test_db):
+    analyzer = FrequencyAnalyzer(test_db)
+    primary_delays, euro_delays = analyzer.calculate_delays()
+
+    # Ο αριθμός 1 και 2 εμφανίστηκαν στην τελευταία κλήρωση (2026-01-10) -> delay 0
+    assert primary_delays[1] == 0
+    assert primary_delays[2] == 0
+    # Ο αριθμός 4 εμφανίστηκε μόνο στην πρώτη κλήρωση (2026-01-01) -> delay 2
+    assert primary_delays[4] == 2
+
+
 def test_predictor_with_empty_db(tmp_path):
     db_mgr = DBManager(db_path=str(tmp_path / "empty.db"))
     db_mgr.initialize_database()
@@ -45,6 +56,21 @@ def test_predictor_with_empty_db(tmp_path):
     candidates = predictor.predict_candidate_set(primary_count=3, euro_count=1)
     assert len(candidates["primary_candidates"]) == 3
     assert len(candidates["euro_candidates"]) == 1
+
+
+def test_predictor_custom_candidate_counts(test_db):
+    analyzer = FrequencyAnalyzer(test_db)
+    predictor = ProbabilityPredictor(analyzer)
+
+    # Έλεγχος για 7 κύριους και 3 euro
+    candidates_7_3 = predictor.predict_candidate_set(primary_count=7, euro_count=3)
+    assert len(candidates_7_3["primary_candidates"]) == 7
+    assert len(candidates_7_3["euro_candidates"]) == 3
+
+    # Έλεγχος για 3 κύριους και 1 euro
+    candidates_3_1 = predictor.predict_candidate_set(primary_count=3, euro_count=1)
+    assert len(candidates_3_1["primary_candidates"]) == 3
+    assert len(candidates_3_1["euro_candidates"]) == 1
 
 
 def test_backtester_static_methods():
